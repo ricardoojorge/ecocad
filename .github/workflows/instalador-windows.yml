@@ -1,0 +1,42 @@
+# Gera o instalador do Windows (EcoCAD-3D-Setup-x.y.z.exe) e publica em "Releases".
+# Rodar: aba Actions › "Instalador Windows" › Run workflow.
+# Só é preciso rodar de novo quando a VERSÃO do instalador mudar (desktop/package.json).
+# Atualizações do EcoCAD em si (docs/index.html) NÃO precisam de instalador novo.
+name: Instalador Windows
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Endereço do EcoCAD (GitHub Pages deste repositório ou domínio próprio)
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"; REPO="${GITHUB_REPOSITORY#*/}"
+          if [ -f ../docs/CNAME ]; then URL="https://$(tr -d ' \r\n' < ../docs/CNAME)/"; else URL="https://${OWNER}.github.io/${REPO}/"; fi
+          echo "Endereço: $URL"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.ecocad.url=process.argv[1];fs.writeFileSync('package.json',JSON.stringify(p,null,2));" "$URL"
+      - name: Bibliotecas (3D e PDF) para funcionar sem internet
+        run: |
+          mkdir -p vendor/pdfjs fallback
+          curl -fsSL -o vendor/three.min.js https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js
+          curl -fsSL -o vendor/OrbitControls.js https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js
+          curl -fsSL -o vendor/jspdf.umd.min.js https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js
+          curl -fsSL -o vendor/pdfjs/pdf.min.js https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js
+          curl -fsSL -o vendor/pdfjs/pdf.worker.min.js https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js
+          cp ../docs/index.html fallback/index.html
+      - name: Instalar e gerar
+        run: |
+          npm install --no-audit --no-fund
+          npx electron-builder --win nsis --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
