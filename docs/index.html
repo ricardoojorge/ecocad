@@ -117,6 +117,14 @@ td.n{text-align:right;font-family:var(--font-num)}
 .menu-list button:hover,.menu-list button:focus-visible{background:var(--grid)}
 .menu-list b{font-weight:600}
 .menu-list small{color:var(--muted);font-size:11.5px}
+.menu-list.left{left:0;right:auto}
+.menu-list.osn{min-width:230px;padding:6px}
+.osn label{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:5px;cursor:pointer;font-size:13px;white-space:nowrap}
+.osn label:hover{background:var(--grid)}
+.osn canvas{flex:none}
+.osn .row2{display:flex;gap:6px;padding:4px 6px}
+.osn .row2 button{flex:1;display:block;text-align:center;font-size:12px;padding:5px;border:1px solid var(--line);border-radius:5px}
+.osn h4{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:4px 8px}
 .menu-list hr{border:0;border-top:1px solid var(--line);margin:4px 0;width:100%}
 .dlg{position:fixed;inset:0;z-index:50;background:rgba(10,14,13,.45);display:grid;place-items:center;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .dlg-box{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:18px;width:min(460px,100%);display:flex;flex-direction:column;gap:12px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
@@ -189,7 +197,10 @@ td.n{text-align:right;font-family:var(--font-num)}
   </div>
   <div class="grp">
     <button class="btn ib on" id="ortho" data-ic="ortho" data-tip="Orto · F8"></button>
-    <button class="btn ib on" id="snap" data-ic="snap" data-tip="Osnap · F3"></button>
+    <div class="menu"><button class="btn ib wide" id="polar" data-ic="polar" data-tip="Polar · F10 (seta: ângulo)"></button>
+      <div class="menu-list osn" id="polar-menu" hidden></div></div>
+    <div class="menu"><button class="btn ib on wide" id="snap" data-ic="snap" data-tip="Osnap · F3 (seta: modos)"></button>
+      <div class="menu-list osn" id="osnap-menu" hidden></div></div>
   </div>
   <div class="field"><span class="lbl" id="lbl-z">Cota</span><input id="zbase" type="number" step="1" value="0" title="Cota base (mm)" aria-label="Cota base (mm)"><span class="field" id="f-zend"><span class="lbl">→</span><input id="zend" type="number" step="1" placeholder="final" title="Cota final (mm), para peça inclinada" aria-label="Cota final (mm)"></span></div>
 </div>
@@ -243,6 +254,7 @@ td.n{text-align:right;font-family:var(--font-num)}
       <code>PP</code><span>Pranchas de produção (A4)</span>
       <code>MA</code><span>MATCHPROP</span>
       <code>DI</code><span>DIST</span>
+      <code>F3 / F8 / F10</code><span>Osnap / Orto / Polar (seta no botão: modos e ângulo)</span>
       <code>E</code><span>ERASE</span>
       <code>U</code><span>UNDO</span>
       <code>PIL</code><span>Pilar (próprio)</span>
@@ -450,6 +462,12 @@ function dims(p){const m=mat(p.mat),B=m.kind?bwOf(p):m.b;if(wallInPlan(p))return
 
 // ================= estado =================
 let ortho=true,snap=true,mouse={x:0,y:0,snapped:false},raw={x:0,y:0};
+// OSNAP (modos como no AutoCAD) e POLAR — preferências do usuário, guardadas neste computador
+const OSN_LIST=[['end','Endpoint'],['mid','Midpoint'],['cen','Center'],['gcen','Geometric Center'],['node','Node'],['quad','Quadrant'],['int','Intersection'],['ext','Extension'],['ins','Insertion'],['perp','Perpendicular'],['tan','Tangent'],['near','Nearest'],['aint','Apparent Intersection'],['par','Parallel']];
+const OSN_PT={end:'Endpoint',mid:'Midpoint',cen:'Center',gcen:'Geometric Center',node:'Node',quad:'Quadrant',int:'Intersection',ext:'Extension',ins:'Insertion',perp:'Perpendicular',tan:'Tangent',near:'Nearest',aint:'Apparent Intersection',par:'Parallel',pint:'Polar · Intersection'};
+let OSN=Object.fromEntries(OSN_LIST.map(([k])=>[k,true])),polar=false,polarInc=15;
+try{const o=JSON.parse(localStorage.getItem('ecocad-osnap')||'null');if(o&&o.m)Object.assign(OSN,o.m);if(o&&o.polar!=null){polar=!!o.polar;if(polar)ortho=false;}if(o&&o.inc)polarInc=+o.inc;}catch(e){}
+const saveOsn=()=>{try{localStorage.setItem('ecocad-osnap',JSON.stringify({m:OSN,polar,inc:polarInc}));}catch(e){}};
 let cmd=null,lastCmd=null,cmdBuf='',typed='',hover=null,win=null,drag=null;
 let sel=new Set(),lastOffset=10,lastCount=5;
 let selR=new Set(); // linhas e textos da referência selecionados (os próprios arrays)
@@ -630,8 +648,14 @@ const LEN_STEPS=['p2','dest','dist','rnew','calv','em1'];
 const typedVal=()=>{if(!typed)return null;const v=parseFloat(typed.replace(',','.'));if(isNaN(v))return null;return cmd&&LEN_STEPS.includes(cmd.step)?toMod(v):v;};
 
 // ---- geometria ----
-function orthoPt(b,p){if(!ortho||mouse.snapped)return{x:p.x,y:p.y};const dx=p.x-b.x,dy=p.y-b.y;return Math.abs(dx)>=Math.abs(dy)?{x:p.x,y:b.y}:{x:b.x,y:p.y};}
-function towards(b,p,L){const dx=p.x-b.x,dy=p.y-b.y;let ux=dx,uy=dy;if(ortho){if(Math.abs(dx)>=Math.abs(dy))uy=0;else ux=0;}const l=Math.hypot(ux,uy);return l?{x:b.x+ux/l*L,y:b.y+uy/l*L}:{x:b.x+L,y:b.y};}
+// POLAR: trava a direção a partir do ponto base em múltiplos do ângulo escolhido (0° = direita, anti-horário)
+function polarAt(b,p){if(!polar||!b)return null;const dx=p.x-b.x,dy=p.y-b.y,L=Math.hypot(dx,dy);if(L*view.s<6)return null;
+  const inc=polarInc*Math.PI/180,a=Math.atan2(-dy,dx),aa=Math.round(a/inc)*inc;if(Math.abs(Math.sin(a-aa))*L*view.s>10||Math.cos(a-aa)<0)return null;
+  const ux=Math.cos(aa),uy=-Math.sin(aa),d=dx*ux+dy*uy;return{pt:{x:b.x+ux*d,y:b.y+uy*d},ux,uy,deg:((aa*180/Math.PI)%360+360)%360,L:d};}
+function orthoPt(b,p){if(mouse.snapped)return{x:p.x,y:p.y};
+  if(ortho){const dx=p.x-b.x,dy=p.y-b.y;return Math.abs(dx)>=Math.abs(dy)?{x:p.x,y:b.y}:{x:b.x,y:p.y};}
+  const pa=polarAt(b,p);return pa?pa.pt:{x:p.x,y:p.y};}
+function towards(b,p,L){const dx=p.x-b.x,dy=p.y-b.y;let ux=dx,uy=dy;if(ortho){if(Math.abs(dx)>=Math.abs(dy))uy=0;else ux=0;}else{const pa=polarAt(b,p);if(pa){ux=pa.ux;uy=pa.uy;}}const l=Math.hypot(ux,uy);return l?{x:b.x+ux/l*L,y:b.y+uy/l*L}:{x:b.x+L,y:b.y};}
 function tf(p,f){const q={...p};[q.x1,q.y1]=f(p.x1,p.y1);[q.x2,q.y2]=f(p.x2,p.y2);if(p.poly)q.poly=p.poly.map(([x,y])=>f(x,y));
   ['cut1','cut2'].forEach(k=>{const c=p[k];if(c){const[a,b]=f(c.ax,c.ay),[d,e]=f(c.bx,c.by);q[k]={ax:a,ay:b,bx:d,by:e};}});return q;}
 function rotP(p,b,a){const c=Math.cos(a),s=Math.sin(a);const q=tf(p,(x,y)=>[b.x+(x-b.x)*c-(y-b.y)*s,b.y+(x-b.x)*s+(y-b.y)*c]);if(p.post&&Math.abs(s)>.7)q.rot=!p.rot;return q;}
@@ -918,8 +942,29 @@ $('nm-add').onclick=()=>{
   S.mats.push(m);S.mat=m.id;['nm-name','nm-b','nm-h','nm-len'].forEach(i=>$(i).value='');renderMats();save();run('line');
 };
 document.querySelectorAll('[data-cmd]').forEach(b=>b.onclick=()=>run(b.dataset.cmd));
-$('ortho').onclick=()=>{ortho=!ortho;$('ortho').classList.toggle('on',ortho);msg(ortho?'Orto ligado':'Orto desligado');draw();};
-$('snap').onclick=()=>{snap=!snap;$('snap').classList.toggle('on',snap);msg(snap?'Osnap ligado':'Osnap desligado');};
+$('ortho').onclick=()=>{ortho=!ortho;if(ortho&&polar){polar=false;saveOsn();}syncTrackBtns();msg(ortho?'Orto ligado':'Orto desligado');draw();};
+function syncTrackBtns(){$('ortho').classList.toggle('on',ortho);$('polar').classList.toggle('on',polar);$('snap').classList.toggle('on',snap);}
+const caretHit=(b,e)=>e.offsetX>b.clientWidth-14||(e.target&&e.target.closest&&e.target.closest('.car'));
+function closeTrackMenus(){$('osnap-menu').hidden=true;$('polar-menu').hidden=true;}
+function renderOsnMenu(){const m=$('osnap-menu');
+  m.innerHTML=`<h4>Object Snap · F3</h4>`+OSN_LIST.map(([k,n])=>`<label><input type="checkbox" data-osn="${k}" ${OSN[k]?'checked':''}><canvas width="18" height="18" data-mk="${k}"></canvas>${n}</label>`).join('')+
+    `<div class="row2"><button data-all="1">Marcar todos</button><button data-all="0">Desmarcar</button></div>`;
+  m.querySelectorAll('canvas[data-mk]').forEach(c=>{const x=c.getContext('2d');x.strokeStyle=css('--accent');x.lineWidth=1.5;drawOsnMark(x,c.dataset.mk,9,9);});
+  m.querySelectorAll('input[data-osn]').forEach(i=>i.onchange=()=>{OSN[i.dataset.osn]=i.checked;saveOsn();});
+  m.querySelectorAll('[data-all]').forEach(b=>b.onclick=()=>{OSN_LIST.forEach(([k])=>OSN[k]=b.dataset.all==='1');saveOsn();renderOsnMenu();});}
+function renderPolarMenu(){const m=$('polar-menu');
+  m.innerHTML=`<h4>Polar Tracking · F10</h4><label><input type="checkbox" id="pol-on" ${polar?'checked':''}>Ligado (desliga o Orto)</label><h4>Ângulo incremental</h4>`+
+    [90,45,30,22.5,15,10,5].map(a=>`<label><input type="radio" name="pol-inc" value="${a}" ${polarInc===a?'checked':''}>${String(a).replace('.',',')}°</label>`).join('')+
+    `<label>Outro: <input type="number" id="pol-other" min="0.5" max="90" step="any" value="${[90,45,30,22.5,15,10,5].includes(polarInc)?'':polarInc}" style="width:64px">°</label>`;
+  $('pol-on').onchange=e=>setPolar(e.target.checked);
+  m.querySelectorAll('input[name=pol-inc]').forEach(r=>r.onchange=()=>{polarInc=+r.value;setPolar(true);});
+  $('pol-other').onchange=e=>{const v=parseFloat(String(e.target.value).replace(',','.'));if(v>0&&v<=90){polarInc=v;setPolar(true);}};}
+function setPolar(on){polar=on;if(on)ortho=false;saveOsn();syncTrackBtns();const pc=$('pol-on');if(pc)pc.checked=polar;msg(polar?`Polar ligado · ${String(polarInc).replace('.',',')}°`:'Polar desligado');draw();}
+$('polar').onclick=e=>{if(caretHit($('polar'),e)){const h=$('polar-menu').hidden;closeTrackMenus();if(h){renderPolarMenu();$('polar-menu').hidden=false;}return;}setPolar(!polar);};
+$('polar').oncontextmenu=e=>{e.preventDefault();closeTrackMenus();renderPolarMenu();$('polar-menu').hidden=false;};
+document.addEventListener('pointerdown',e=>{if(!e.target.closest||!e.target.closest('#osnap-menu,#polar-menu,#snap,#polar'))closeTrackMenus();});
+$('snap').onclick=e=>{if(e&&caretHit($('snap'),e)){const h=$('osnap-menu').hidden;closeTrackMenus();if(h){renderOsnMenu();$('osnap-menu').hidden=false;}return;}snap=!snap;syncTrackBtns();msg(snap?'Osnap ligado':'Osnap desligado');};
+$('snap').oncontextmenu=e=>{e.preventDefault();closeTrackMenus();renderOsnMenu();$('osnap-menu').hidden=false;};
 $('undo').onclick=undo;
 $('clear').onclick=()=>{push();S.pieces=[];sel.clear();finish(false);msg('Desenho limpo. U desfaz.');};
 function undo(){if(!hist.length){msg('Nada para desfazer.');return;}const e=hist.pop();
@@ -1068,27 +1113,100 @@ function draw(){
   ctx.strokeStyle=css('--fg');ctx.lineWidth=1;ctx.beginPath();
   if(!(cmd&&PICKSTEPS.includes(cmd.step))){ctx.moveTo(cx-14,cy);ctx.lineTo(cx+14,cy);ctx.moveTo(cx,cy-14);ctx.lineTo(cx,cy+14);}
   ctx.stroke();if(pick)ctx.strokeRect(cx-4.5,cy-4.5,9,9);
-  if(mouse.snapped){ctx.strokeStyle=css('--accent');ctx.lineWidth=2;ctx.strokeRect(cx-6,cy-6,12,12);}
+  const B0=cmd?snapBase():null;
+  if(mouse.track||(B0&&!mouse.snapped&&(polar)&&polarAt(B0,mouse))){ctx.save();ctx.strokeStyle=css('--accent');ctx.lineWidth=1;ctx.setLineDash([2,4]);ctx.beginPath();
+    if(mouse.track){const[a1,b1]=W2S(...mouse.track[0]),[a2,b2]=W2S(...mouse.track[1]);ctx.moveTo(a1,b1);ctx.lineTo(a2,b2);}
+    if(B0&&!mouse.snapped&&polar){const pa=polarAt(B0,mouse);if(pa){const[a1,b1]=W2S(B0.x,B0.y),far=1e5;ctx.moveTo(a1,b1);ctx.lineTo(a1+pa.ux*far,b1+pa.uy*far);ctx.stroke();ctx.setLineDash([]);
+      const t=`Polar: ${fmm(Math.abs(pa.L))} < ${Math.round(pa.deg*10)/10}°`;ctx.font='600 11px "JetBrains Mono",monospace';const w=ctx.measureText(t).width;ctx.fillStyle=css('--panel');ctx.fillRect(cx+12,cy+10,w+10,18);ctx.fillStyle=css('--fg');ctx.fillText(t,cx+17,cy+23);}}
+    ctx.stroke();ctx.restore();}
+  if(mouse.snapped){ctx.strokeStyle=css('--accent');ctx.lineWidth=2;drawOsnMark(ctx,mouse.snapKind,cx,cy);
+    ctx.font='600 10px "JetBrains Mono",monospace';ctx.fillStyle=css('--accent');ctx.fillText(OSN_PT[mouse.snapKind]||'',cx+11,cy-10);}
+  // marcas dos pontos adquiridos (+)
+  if(mouse.acq&&cmd){ctx.strokeStyle=css('--accent');ctx.lineWidth=1;mouse.acq.forEach(o=>{[[o.seg[0],o.seg[1]],[o.seg[2],o.seg[3]]].forEach(q=>{const[a1,b1]=W2S(...q);ctx.beginPath();ctx.moveTo(a1-3,b1);ctx.lineTo(a1+3,b1);ctx.moveTo(a1,b1-3);ctx.lineTo(a1,b1+3);ctx.stroke();});});}
 }
+function drawOsnMark(c,k,x,y){c.beginPath();const r=6;
+  if(k==='end')c.rect(x-r,y-r,2*r,2*r);
+  else if(k==='mid'){c.moveTo(x,y-7);c.lineTo(x+7,y+5);c.lineTo(x-7,y+5);c.closePath();}
+  else if(k==='cen')c.arc(x,y,r,0,7);
+  else if(k==='gcen'){c.rect(x-r,y-r,2*r,2*r);c.moveTo(x+3,y);c.arc(x,y,3,0,7);}
+  else if(k==='node'){c.arc(x,y,r,0,7);c.moveTo(x-4,y-4);c.lineTo(x+4,y+4);c.moveTo(x+4,y-4);c.lineTo(x-4,y+4);}
+  else if(k==='quad'){c.moveTo(x,y-7);c.lineTo(x+7,y);c.lineTo(x,y+7);c.lineTo(x-7,y);c.closePath();}
+  else if(k==='int'||k==='pint'){c.moveTo(x-r,y-r);c.lineTo(x+r,y+r);c.moveTo(x+r,y-r);c.lineTo(x-r,y+r);}
+  else if(k==='aint'){c.rect(x-r,y-r,2*r,2*r);c.moveTo(x-r,y-r);c.lineTo(x+r,y+r);c.moveTo(x+r,y-r);c.lineTo(x-r,y+r);}
+  else if(k==='ext'){[-5,0,5].forEach(d=>{c.moveTo(x+d-1,y);c.lineTo(x+d+1,y);});}
+  else if(k==='ins'){c.rect(x-r,y-r,r,r);c.rect(x,y,r,r);}
+  else if(k==='perp'){c.moveTo(x-r,y-r);c.lineTo(x-r,y+r);c.lineTo(x+r,y+r);c.moveTo(x-r,y);c.lineTo(x,y);c.lineTo(x,y+r);}
+  else if(k==='tan'){c.arc(x,y+1,5,0,7);c.moveTo(x-r,y-5);c.lineTo(x+r,y-5);}
+  else if(k==='near'){c.moveTo(x-r,y-r);c.lineTo(x+r,y-r);c.lineTo(x-r,y+r);c.lineTo(x+r,y+r);c.closePath();}
+  else if(k==='par'){c.moveTo(x-6,y+4);c.lineTo(x,y-6);c.moveTo(x-1,y+6);c.lineTo(x+5,y-4);}
+  else c.rect(x-r,y-r,2*r,2*r);c.stroke();}
 function dim(x1,y1,x2,y2,txt){
   const[a,b]=W2S(x1,y1),[c,d]=W2S(x2,y2),L=Math.hypot(c-a,d-b)||1,nx=-(d-b)/L*22,ny=(c-a)/L*22;
   ctx.strokeStyle=css('--muted');ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(a+nx,b+ny);ctx.lineTo(c+nx,d+ny);ctx.moveTo(a,b);ctx.lineTo(a+nx*1.2,b+ny*1.2);ctx.moveTo(c,d);ctx.lineTo(c+nx*1.2,d+ny*1.2);ctx.stroke();
   ctx.font='600 12px JetBrains Mono, monospace';const tw=ctx.measureText(txt).width;
   const mx=(a+c)/2+nx,my=(b+d)/2+ny;ctx.fillStyle=css('--plan');ctx.fillRect(mx-tw/2-3,my-9,tw+6,16);ctx.fillStyle=css('--fg');ctx.textAlign='center';ctx.fillText(txt,mx,my+4);
 }
+// OSNAP: ponto final / meio / interseção (prioridade), perpendicular a partir do ponto base, e "mais próximo" na linha
+function snapBase(){if(!cmd){mouse.acq=null;return null;}const st=cmd.step;
+  if(st==='p2')return cmd.start||null;if(st==='r2')return cmd.r1||null;if(st==='d2')return cmd.p1||null;if(st==='dest'||st==='angle'||st==='mir2')return cmd.base||null;return cmd.start&&st&&/2$/.test(st)?cmd.start:null;}
+let arcSeq=Math.floor(Date.now()/1000)%1e6*1000;
+const circum=(a,b,c)=>{const d=2*(a[0]*(b[1]-c[1])+b[0]*(c[1]-a[1])+c[0]*(a[1]-b[1]));if(Math.abs(d)<1e-9)return null;const A=a[0]*a[0]+a[1]*a[1],B=b[0]*b[0]+b[1]*b[1],C=c[0]*c[0]+c[1]*c[1];
+  return[(A*(b[1]-c[1])+B*(c[1]-a[1])+C*(a[1]-b[1]))/d,(A*(c[0]-b[0])+B*(a[0]-c[0])+C*(b[0]-a[0]))/d];};
 function snapPt(wx,wy){
-  mouse.snapped=false;if(!snap)return{x:wx,y:wy};
-  let best=null,bd=12/view.s;const tryP=(x,y)=>{const d=Math.hypot(x-wx,y-wy);if(d<bd){bd=d;best={x,y};}};
-  S.pieces.forEach(p=>{if(!isOn(p))return;
-    if(same(p)){if(p.poly){p.poly.forEach(q=>tryP(q[0],q[1]));return;}tryP(p.x1,p.y1);tryP(p.x2,p.y2);tryP((p.x1+p.x2)/2,(p.y1+p.y2)/2);if(!p.post)footprint(p).forEach(q=>tryP(q[0],q[1]));}
-    else shape2(p).forEach(q=>tryP(q[0],q[1]));});
+  mouse.snapped=false;mouse.snapKind=null;mouse.track=null;if(!snap)return{x:wx,y:wy};
+  const tol=12/view.s,O=OSN,B=snapBase();let best=null,bd=tol;
+  const PRI={int:3,cen:2,end:1};const tryP=(x,y,k,seg)=>{if(!O[k])return;const d=Math.hypot(x-wx,y-wy);if(d<bd-1e-9||(best&&d<=bd+1e-9&&(PRI[k]||0)>(PRI[best.k]||0))){bd=Math.min(d,bd);best={x,y,k,seg};}};
+  const segs=[],axes=[],onSeg=(x1,y1,x2,y2)=>{const dx=x2-x1,dy=y2-y1,l2=dx*dx+dy*dy;if(l2<1e-9)return 1e9;const t=Math.max(0,Math.min(1,((wx-x1)*dx+(wy-y1)*dy)/l2));return Math.hypot(x1+dx*t-wx,y1+dy*t-wy);};
+  const near=(x1,y1,x2,y2,tag)=>{if(onSeg(x1,y1,x2,y2)<tol)segs.push([x1,y1,x2,y2,tag]);};
+  S.pieces.forEach(p=>{if(!isOn(p))return;const f=shape2(p);
+    if(same(p)&&!p.post&&!p.poly){tryP(p.x1,p.y1,'end',[p.x1,p.y1,p.x2,p.y2]);tryP(p.x2,p.y2,'end',[p.x1,p.y1,p.x2,p.y2]);tryP((p.x1+p.x2)/2,(p.y1+p.y2)/2,'mid');if(onSeg(p.x1,p.y1,p.x2,p.y2)<tol*4)axes.push([p.x1,p.y1,p.x2,p.y2]);}
+    for(let i=0;i<f.length;i++){const u=f[i],v=f[(i+1)%f.length],sg=[u[0],u[1],v[0],v[1]];tryP(u[0],u[1],'end',sg);tryP(v[0],v[1],'end',sg);tryP((u[0]+v[0])/2,(u[1]+v[1])/2,'mid');near(u[0],u[1],v[0],v[1]);}
+    if(O.gcen&&f.length>2){let A=0,cx=0,cy=0;for(let i=0;i<f.length;i++){const u=f[i],v=f[(i+1)%f.length],c=u[0]*v[1]-v[0]*u[1];A+=c;cx+=(u[0]+v[0])*c;cy+=(u[1]+v[1])*c;}if(Math.abs(A)>1e-9)tryP(cx/(3*A),cy/(3*A),'gcen');}
+    if(same(p)&&!p.post&&!p.poly)near(p.x1,p.y1,p.x2,p.y2);});
+  // NODE: nó das peças = cruzamento dos eixos
+  if(O.node)for(let i=0;i<axes.length;i++)for(let j=i+1;j<axes.length;j++){const a=axes[i],c=axes[j],r=segInt(a[0],a[1],a[2],a[3],c[0],c[1],c[2],c[3]);if(r&&r.t>-.02&&r.t<1.02&&r.u>-.02&&r.u<1.02)tryP(a[0]+(a[2]-a[0])*r.t,a[1]+(a[3]-a[1])*r.t,'node');}
   const R=S.refs&&S.refs[VIEW];
-  if(R&&R.grids.length){const G=R.grids;for(let i=0;i<G.length;i++){const a=G[i];for(let j=i+1;j<G.length;j++){const b=G[j],r=segInt(a[0],a[1],a[2],a[3],b[0],b[1],b[2],b[3]);if(r)tryP(a[0]+(a[2]-a[0])*r.t,a[1]+(a[3]-a[1])*r.t);}
-    S.pieces.forEach(p=>{if(!same(p)||p.post)return;const r=segInt(p.x1,p.y1,p.x2,p.y2,a[0],a[1],a[2],a[3]);if(r&&r.t>=0&&r.t<=1)tryP(p.x1+(p.x2-p.x1)*r.t,p.y1+(p.y2-p.y1)*r.t);});}}
-  if(R&&R.lines.length<40000)R.lines.forEach(l=>{tryP(l[0],l[1]);tryP(l[2],l[3]);tryP((l[0]+l[2])/2,(l[1]+l[3])/2);});
-  if(best){mouse.snapped=true;return best;}
+  if(R&&R.grids.length){const G=R.grids;for(let i=0;i<G.length;i++){const a=G[i];for(let j=i+1;j<G.length;j++){const c=G[j],r=segInt(a[0],a[1],a[2],a[3],c[0],c[1],c[2],c[3]);if(r)tryP(a[0]+(a[2]-a[0])*r.t,a[1]+(a[3]-a[1])*r.t,'int');}
+    S.pieces.forEach(p=>{if(!same(p)||p.post||p.poly)return;const r=segInt(p.x1,p.y1,p.x2,p.y2,a[0],a[1],a[2],a[3]);if(r&&r.t>=0&&r.t<=1)tryP(p.x1+(p.x2-p.x1)*r.t,p.y1+(p.y2-p.y1)*r.t,'int');});
+    near(a[0],a[1],a[2],a[3]);}}
+  const arcTags=new Set();
+  if(R&&R.lines.length<60000){const L=R.lines,n=L.length;
+    for(let i=0;i<n;i++){const l=L[i],tg=l[5];
+      if(tg){const first=!(i>0&&L[i-1][5]===tg),last=!(i<n-1&&L[i+1][5]===tg);if(first){let j=i;while(j<n-1&&L[j+1][5]===tg)j++;l._closed=Math.hypot(L[j][2]-l[0],L[j][3]-l[1])<1e-6;}
+        let i0=i;while(i0>0&&L[i0-1][5]===tg)i0--;const closed=L[i0]._closed;if(!closed){if(first)tryP(l[0],l[1],'end',null);if(last)tryP(l[2],l[3],'end',null);}if(onSeg(l[0],l[1],l[2],l[3])<tol){arcTags.add(tg);segs.push([l[0],l[1],l[2],l[3],tg]);}continue;}
+      const sg=[l[0],l[1],l[2],l[3]];tryP(l[0],l[1],'end',sg);tryP(l[2],l[3],'end',sg);tryP((l[0]+l[2])/2,(l[1]+l[3])/2,'mid');near(l[0],l[1],l[2],l[3]);}}
+  if(R&&O.ins)(R.texts||[]).forEach(t=>tryP(t[0],t[1],'ins'));
+  // círculos e arcos importados: CENTER, QUADRANT, TANGENT, MIDPOINT do arco
+  const hov=new Set(arcTags);if(R){mouse.arcs=[...new Set([...arcTags,...(mouse.arcs||[])])].slice(0,3);(mouse.arcs||[]).forEach(t=>arcTags.add(t));}
+  if(arcTags.size){const L=R.lines;arcTags.forEach(tg=>{const P=[];let ls=[];for(const l of L)if(l[5]===tg){if(!P.length)P.push([l[0],l[1]]);P.push([l[2],l[3]]);ls.push(l);}
+      if(P.length<3)return;const full=Math.hypot(P[0][0]-P[P.length-1][0],P[0][1]-P[P.length-1][1])<1e-6,c=circum(P[0],P[Math.floor(P.length/3)],P[Math.floor(2*P.length/3)]);if(!c)return;
+      const r=Math.hypot(P[0][0]-c[0],P[0][1]-c[1]),onArc=(x,y)=>ls.some(l=>{const dx=l[2]-l[0],dy=l[3]-l[1],l2=dx*dx+dy*dy||1,t=Math.max(0,Math.min(1,((x-l[0])*dx+(y-l[1])*dy)/l2));return Math.hypot(l[0]+dx*t-x,l[1]+dy*t-y)<Math.max(.01,r*.02);});
+      if(O.cen){const dc=Math.hypot(c[0]-wx,c[1]-wy);if(dc<bd){bd=dc;best={x:c[0],y:c[1],k:'cen'};}else if(!best&&hov.has(tg)){bd=tol;best={x:c[0],y:c[1],k:'cen'};}}
+      [[1,0],[0,1],[-1,0],[0,-1]].forEach(([u,v])=>{const x=c[0]+u*r,y=c[1]+v*r;if(full||onArc(x,y))tryP(x,y,'quad');});
+      if(!full){const m=P[Math.floor(P.length/2)];if(P.length%2)tryP(m[0],m[1],'mid');}
+      if(B){const d=Math.hypot(B.x-c[0],B.y-c[1]);if(d>r+1e-6){const th=Math.atan2(B.y-c[1],B.x-c[0]),al=Math.acos(r/d);[th+al,th-al].forEach(t=>{const x=c[0]+r*Math.cos(t),y=c[1]+r*Math.sin(t);if(full||onArc(x,y))tryP(x,y,'tan');});}}});}
+  // interseções entre segmentos perto do cursor
+  if(O.int&&segs.length<400)for(let i=0;i<segs.length;i++)for(let j=i+1;j<segs.length;j++){const a=segs[i],c=segs[j];if(a[4]&&a[4]===c[4])continue;const r=segInt(a[0],a[1],a[2],a[3],c[0],c[1],c[2],c[3]);
+    if(r&&r.t>=-1e-6&&r.t<=1+1e-6&&r.u>=-1e-6&&r.u<=1+1e-6)tryP(a[0]+(a[2]-a[0])*r.t,a[1]+(a[3]-a[1])*r.t,'int');}
+  if(best){if(best.k==='end'&&best.seg)acquire(best.seg);mouse.snapped=true;mouse.snapKind=best.k;return{x:best.x,y:best.y};}
+  // rastreamento: EXTENSION, APPARENT INTERSECTION, PERPENDICULAR, PARALLEL, POLAR × linha
+  const acq=(mouse.acq||[]).map(o=>o.seg);let tb=null,td=tol;const tr=(x,y,k,track)=>{if(!O[k]&&k!=='pint')return;const d=Math.hypot(x-wx,y-wy);if(d<td){td=d;tb={x,y,k,track};}};
+  acq.forEach(g=>{const dx=g[2]-g[0],dy=g[3]-g[1],l2=dx*dx+dy*dy;if(l2<1e-9)return;const t=((wx-g[0])*dx+(wy-g[1])*dy)/l2;if(t>=0&&t<=1)return;const x=g[0]+dx*t,y=g[1]+dy*t,e=t<0?[g[0],g[1]]:[g[2],g[3]];tr(x,y,'ext',[e,[x,y]]);
+    segs.forEach(c=>{const r=segInt(g[0],g[1],g[2],g[3],c[0],c[1],c[2],c[3]);if(r&&r.u>=-1e-6&&r.u<=1+1e-6&&(r.t<0||r.t>1)){const x2=g[0]+dx*r.t,y2=g[1]+dy*r.t;tr(x2,y2,'ext',[r.t<0?[g[0],g[1]]:[g[2],g[3]],[x2,y2]]);}});});
+  if(O.aint&&segs.length<200)for(let i=0;i<segs.length;i++)for(let j=i+1;j<segs.length;j++){const a=segs[i],c=segs[j];if(a[4]&&a[4]===c[4])continue;const r=segInt(a[0],a[1],a[2],a[3],c[0],c[1],c[2],c[3]);
+    if(r&&!(r.t>=0&&r.t<=1&&r.u>=0&&r.u<=1))tr(a[0]+(a[2]-a[0])*r.t,a[1]+(a[3]-a[1])*r.t,'aint');}
+  if(B){segs.forEach(([x1,y1,x2,y2])=>{const dx=x2-x1,dy=y2-y1,l2=dx*dx+dy*dy,t=((B.x-x1)*dx+(B.y-y1)*dy)/l2,qx=x1+dx*t,qy=y1+dy*t;if(Math.hypot(qx-B.x,qy-B.y)<1e-6)return;tr(qx,qy,'perp',t<0||t>1?[[t<0?x1:x2,t<0?y1:y2],[qx,qy]]:null);});
+    acq.forEach(g=>{const dx=g[2]-g[0],dy=g[3]-g[1],L=Math.hypot(dx,dy);if(L<1e-9)return;const ux=dx/L,uy=dy/L,d=(wx-B.x)*ux+(wy-B.y)*uy,x=B.x+ux*d,y=B.y+uy*d;if(Math.abs(d)*view.s<10)return;tr(x,y,'par',[[B.x,B.y],[x,y]]);});
+    const pa=polar?polarAt(B,{x:wx,y:wy}):ortho?(()=>{const dx=wx-B.x,dy=wy-B.y,h=Math.abs(dx)>=Math.abs(dy);return{ux:h?Math.sign(dx)||1:0,uy:h?0:Math.sign(dy)||1};})():null;
+    if(pa)segs.forEach(c=>{const r=segInt(B.x,B.y,B.x+pa.ux,B.y+pa.uy,c[0],c[1],c[2],c[3]);if(r&&r.t>0&&r.u>=-1e-6&&r.u<=1+1e-6)tr(B.x+pa.ux*r.t,B.y+pa.uy*r.t,'pint',[[B.x,B.y],[B.x+pa.ux*r.t,B.y+pa.uy*r.t]]);});}
+  if(tb){mouse.snapped=true;mouse.snapKind=tb.k;mouse.track=tb.track;return{x:tb.x,y:tb.y};}
+  // NEAREST: o ponto da linha embaixo do cursor
+  if(O.near){let nb=null,nd=tol*.7;segs.forEach(([x1,y1,x2,y2])=>{const dx=x2-x1,dy=y2-y1,l2=dx*dx+dy*dy,t=Math.max(0,Math.min(1,((wx-x1)*dx+(wy-y1)*dy)/l2)),qx=x1+dx*t,qy=y1+dy*t,d=Math.hypot(qx-wx,qy-wy);if(d<nd){nd=d;nb={x:qx,y:qy};}});
+    if(nb){mouse.snapped=true;mouse.snapKind='near';return nb;}}
   const g=view.s>2?1:view.s>.6?5:10;return{x:Math.round(wx/g)*g,y:Math.round(wy/g)*g};
 }
+// pontos "adquiridos" (parar o mouse num ponto final) para EXTENSION e PARALLEL, como no AutoCAD
+function acquire(seg){const A=mouse.acq||(mouse.acq=[]),k=seg.map(v=>Math.round(v*100)).join(',');if(A.some(o=>o.k===k))return;A.push({k,seg});if(A.length>3)A.shift();}
 function endPoint(){
   const m=mat(S.mat),v=typedVal(),s=cmd.start;let q;
   if(m.len)q=towards(s,mouse,m.len);else if(v!=null)q=towards(s,mouse,v);else q=orthoPt(s,mouse);
@@ -1232,7 +1350,8 @@ window.addEventListener('keydown',e=>{
   if(e.ctrlKey||e.metaKey||e.altKey)return;
   if(e.key==='PageUp'||e.key==='PageDown'){e.preventDefault();stepPlane(e.key==='PageDown'?1:-1);return;}
   if(e.key==='F8'){e.preventDefault();$('ortho').click();return;}
-  if(e.key==='F3'){e.preventDefault();$('snap').click();return;}
+  if(e.key==='F3'){e.preventDefault();snap=!snap;syncTrackBtns();msg(snap?'Osnap ligado':'Osnap desligado');return;}
+  if(e.key==='F10'){e.preventDefault();setPolar(!polar);return;}
   if(e.key==='Escape'){e.preventDefault();doEsc();return;}
   if(cmd&&cmd.step==='em1'&&!cmdBuf&&!typed&&e.key.toLowerCase()==='c'){if(!plateReady()){msg('Cadastre e escolha um conector na biblioteca.');return;}spliceConn=!spliceConn;refresh();return;}
   if(cmd&&(cmd.name==='fillet'||cmd.name==='weld')&&!cmdBuf&&!typed&&e.key.toLowerCase()==='m'){joinMode=joinMode==='miter'?'butt':'miter';refresh();return;}
@@ -1796,8 +1915,8 @@ function parseDXF(txt){
     else if(t==='TEXT'||t==='MTEXT'){let s=((c[3]||[]).join('')+((c[1]||[]).join(''))).trim();
       if(t==='MTEXT')s=s.replace(/\\P/g,' ').replace(/\\[A-Za-z][^;\\{}]*;/g,'').replace(/\\[A-Za-z]/g,'').replace(/[{}]/g,'').trim();
       const rot=g(50);if(s)texts.push({x:g(10),y:g(20),h:g(40)||2.5,s,ang:t==='TEXT'?rot*Math.PI/180:(Math.abs(rot)>6.3?rot*Math.PI/180:rot)});}
-    else if(t==='CIRCLE'||t==='ARC'){const cx=g(10),cy=g(20),r=g(40);let a0=t==='ARC'?g(50):0,a1=t==='ARC'?g(51):360;if(a1<=a0)a1+=360;const n=Math.max(4,Math.ceil((a1-a0)/10));
-      for(let i=0;i<n;i++){const u=(a0+(a1-a0)*i/n)*Math.PI/180,v2=(a0+(a1-a0)*(i+1)/n)*Math.PI/180;S2(cx+r*Math.cos(u),cy+r*Math.sin(u),cx+r*Math.cos(v2),cy+r*Math.sin(v2),true);}}
+    else if(t==='CIRCLE'||t==='ARC'){const cx=g(10),cy=g(20),r=g(40),aid=++arcSeq;let a0=t==='ARC'?g(50):0,a1=t==='ARC'?g(51):360;if(a1<=a0)a1+=360;const n=Math.max(4,Math.ceil((a1-a0)/10));
+      for(let i=0;i<n;i++){const u=(a0+(a1-a0)*i/n)*Math.PI/180,v2=(a0+(a1-a0)*(i+1)/n)*Math.PI/180;S2(cx+r*Math.cos(u),cy+r*Math.sin(u),cx+r*Math.cos(v2),cy+r*Math.sin(v2),aid);}}
     ent=null;};
   for(let i=0;i+1<ln.length;i+=2){const code=parseInt(ln[i],10),val=ln[i+1].trim();if(isNaN(code))continue;
     if(code===0){fin();if(val==='SECTION'){sec='?';continue;}if(val==='ENDSEC'){sec='';continue;}if(sec==='ENTITIES')ent={t:val,c:{}};continue;}
@@ -1826,11 +1945,11 @@ function applyImport(segs,texts,mode,what){
   const R=S.refs[VIEW];push(segs.length+texts.length<200000);texts.forEach(t=>R.texts.push(t));
   if(mode==='pec'){
     const cur=mat(S.mat).post?S.mats.find(m=>!m.post):mat(S.mat);const{z}=zvals();let n=0;
-    segs.forEach(s=>{if(s.arc){R.lines.push([s.x1,s.y1,s.x2,s.y2,s.layer||'0']);return;}if(Math.hypot(s.x2-s.x1,s.y2-s.y1)<.5)return;
+    segs.forEach(s=>{if(s.arc){R.lines.push([s.x1,s.y1,s.x2,s.y2,s.layer||'0',typeof s.arc==='number'?s.arc:0]);return;}if(Math.hypot(s.x2-s.x1,s.y2-s.y1)<.5)return;
       const L=nrm(s.layer),m=S.mats.find(m=>!m.post&&(nrm(m.name)===L||nrm(dxfLayer(m))===L||'mad'+nrm(m.name)===L))||cur;
       S.pieces.push({id:S.nid++,view:VIEW,mat:m.id,x1:s.x1,y1:s.y1,x2:s.x2,y2:s.y2,z,z2:z,rot:false});n++;});
     changed();fit2d();fit3d();msg(`${n.toLocaleString('pt-BR')} peças criadas a partir do ${what}${texts.length?`, ${texts.length} textos como referência`:''}.`,7000);
-  }else{segs.forEach(s=>R.lines.push([s.x1,s.y1,s.x2,s.y2,s.layer||'0']));save();fit2d();refresh();
+  }else{segs.forEach(s=>R.lines.push([s.x1,s.y1,s.x2,s.y2,s.layer||'0'].concat(typeof s.arc==='number'?[s.arc]:[])));save();fit2d();refresh();
     msg(`${what}: ${segs.length.toLocaleString('pt-BR')} linhas e ${texts.length.toLocaleString('pt-BR')} textos importados na vista ${VNAME[VIEW]}.`,7000);}
 }
 
@@ -2368,6 +2487,7 @@ const IC={
   rect:'<rect x="3.5" y="6" width="17" height="12"/><circle cx="3.5" cy="6" r="1.6" fill="currentColor"/><circle cx="20.5" cy="18" r="1.6" fill="currentColor"/>',
   grid:'<path d="M17 9v12M3 17h12" stroke-dasharray="4 2"/><circle cx="17" cy="5.5" r="3.2"/><circle cx="5.5" cy="7" r="3.2"/><path d="M5.5 10.2V17"/>',
   snap:'<rect x="7" y="7" width="10" height="10"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>',
+  polar:'<path d="M4 20h16"/><path d="M4 20 18 6" stroke-dasharray="2 2.5"/><path d="M11 20a7 7 0 0 0-2-5"/>',
   prev:'<path d="M15 5l-7 7 7 7"/>',next:'<path d="M9 5l7 7-7 7"/>',
   undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
   new:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 12v6M9 15h6"/>'
@@ -2376,7 +2496,7 @@ document.querySelectorAll('[data-ic]').forEach(b=>{b.setAttribute('aria-label',b
   b.innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true">${IC[b.dataset.ic]||''}</svg>`+(b.classList.contains('wide')?'<svg class="car" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5"/></svg>':'');});
 
 // ================= início =================
-bindPlaneBar();
+bindPlaneBar();syncTrackBtns();
 $('pname').value=S.name||'';
 addEventListener('resize',resize);
 renderMats();resize();VIEWS.top.init=true;fit2d();changed();fit3d();
