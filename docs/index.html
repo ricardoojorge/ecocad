@@ -103,6 +103,7 @@ td.n{text-align:right;font-family:var(--font-num)}
   aside.l{border-right:0;border-bottom:1px solid var(--line)}
   #plan{cursor:crosshair}
 }
+.vtabs .btn.cut{border-left:1px solid var(--line);font-weight:600}
 .vtabs{position:absolute;left:8px;top:6px;display:flex;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:2px}
 .vtabs .btn{font-size:12px;padding:4px 10px}
 .planebar{position:absolute;left:8px;top:44px;display:flex;gap:3px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:2px;z-index:5}
@@ -254,6 +255,7 @@ td.n{text-align:right;font-family:var(--font-num)}
       <code>EA</code><span>Emendas automáticas</span>
       <code>PP</code><span>Pranchas de produção (A4)</span>
       <code>MA</code><span>MATCHPROP</span>
+      <code>CORTE</code><span>Linha de corte na planta: escolhe a parte e o lado que a vista frontal/lateral mostra</span>
       <code>DI</code><span>DIST</span>
       <code>F3 / F8 / F10</code><span>Osnap / Orto / Polar (seta no botão: modos e ângulo)</span>
       <code>E</code><span>ERASE</span>
@@ -318,7 +320,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.26-2';
+const APP_VER='2026.11.26-3';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -365,11 +367,18 @@ let depthMode='faint',hiddenIds=new Set(),isoIds=null;const DEPTH_TOL=15; // ±1
 const shownHI=p=>!hiddenIds.has(p.id)&&(!isoIds||isoIds.has(p.id));
 function activePlane(){return toMod(parseFloat($('zbase').value)||0);}
 function inBand(p){if(VIEW==='top'||depthMode==='all')return true;const P=activePlane(),k=VIEW==='front'?1:0;let lo=1e9,hi=-1e9;corners3(p).forEach(W=>{if(W[k]<lo)lo=W[k];if(W[k]>hi)hi=W[k];});return hi>=P-DEPTH_TOL&&lo<=P+DEPTH_TOL;}
-function vis(p){if(!shownHI(p))return'off';if(!inBand(p))return depthMode==='hide'?'off':'faint';return'on';}
+function vis(p){if(!shownHI(p))return'off';
+  const c=activeCut&&VIEW!=='top'?cutOf(activeCut):null;
+  if(c){const k=VIEW==='front'?1:0,h=VIEW==='front'?0:1;let lo=1e9,hi=-1e9,l2=1e9,h2=-1e9;corners3(p).forEach(W=>{lo=Math.min(lo,W[k]);hi=Math.max(hi,W[k]);l2=Math.min(l2,W[h]);h2=Math.max(h2,W[h]);});
+    if(h2<c.lo-.1||l2>c.hi+.1)return'off';                                   // fora da largura da linha de corte
+    if(hi>=c.pos-DEPTH_TOL&&lo<=c.pos+DEPTH_TOL)return'on';                 // cortado / no plano do corte
+    const far=c.dir>0?lo>c.pos:hi<c.pos;if(!far)return'off';               // atrás de quem olha
+    return depthMode==='all'?'on':depthMode==='hide'?'off':'faint';}        // além do corte
+  if(!inBand(p))return depthMode==='hide'?'off':'faint';return'on';}
 const isOn=p=>vis(p)==='on';
 function viewPlanes(){const m=new Map();S.pieces.forEach(p=>{if(p.view!==VIEW||VIEW==='top'||isPlate(p)||!shownHI(p))return;const k=Math.round(p.z*10);const e=m.get(k)||{mm:k,n:0,g:new Set()};e.n++;if(p.gid&&S.groups[p.gid])e.g.add(S.groups[p.gid].name);m.set(k,e);});return[...m.values()].sort((a,b)=>a.mm-b.mm);}
 function openPlaneOf(p){const mm=Math.round(p.z*10);setView(p.view);VIEWS[VIEW].init=true;setPlane(mm);fit2d();msg(`Vista ${VNAME[p.view]} no plano ${p.view==='front'?'Y':'X'} = ${mm} mm.`,4000);}
-function setPlane(mm){VIEWS[VIEW].z=String(mm);$('zbase').value=mm;sel.clear();selR.clear();refresh();}
+function setPlane(mm,keepCut){if(!keepCut&&activeCut){leaveCut();fit2d();}VIEWS[VIEW].z=String(mm);$('zbase').value=mm;sel.clear();selR.clear();refresh();}
 function stepPlane(dir){if(VIEW==='top'){msg('Os planos valem nas vistas Frontal e Lateral.');return;}const L=viewPlanes();if(!L.length){msg('Não há peças desenhadas nesta vista.');return;}
   const cur=Math.round(activePlane()*10);let t=dir>0?L.find(e=>e.mm>cur+.5):[...L].reverse().find(e=>e.mm<cur-.5);if(!t)t=dir>0?L[0]:L[L.length-1];setPlane(t.mm);msg(`${VIEW==='front'?'Y':'X'} = ${t.mm} mm · ${t.n} peça(s)${t.g.size?' · '+[...t.g].join(', '):''}`,3500);}
 let planeSig='';
@@ -492,6 +501,37 @@ function hitRef(wx,wy){
     if(lx>=-tol&&lx<=w+tol&&ly>=-o[2]-tol&&ly<=o[2]*.3+tol){const d=Math.max(0,Math.min(bd*.99,Math.abs(ly+o[2]/2)-o[2]/2));if(d<bd){bd=d;best=o;}}});
   return best?{o:best,d:bd}:null;}
 let VIEW='top';
+// CORTES: linha na planta (horizontal → vista frontal, vertical → lateral) + lado para onde se olha
+let activeCut=null;
+const cutOf=id=>(S.cuts||[]).find(c=>c.id===id)||null;
+const nextCutName=()=>{const used=new Set((S.cuts||[]).map(c=>c.name));for(let i=0;i<26*3;i++){const n=i<26?String.fromCharCode(65+i):String.fromCharCode(65+Math.floor(i/26)-1)+String.fromCharCode(65+i%26);if(!used.has(n))return n;}return'X';};
+// sentido padrão: Frontal olha para cima da planta (dir -1 em y); Lateral olha para a direita (dir +1 em x). Ao contrário → vista espelhada
+const cutMirror=c=>c.axis==='front'?(c.dir>0?-1:1):(c.dir<0?-1:1);
+function makeCut(a,b,side){const hz=Math.abs(b.x-a.x)>=Math.abs(b.y-a.y),axis=hz?'front':'side',pos=hz?a.y:a.x,lo=hz?Math.min(a.x,b.x):Math.min(a.y,b.y),hi=hz?Math.max(a.x,b.x):Math.max(a.y,b.y),
+    dir=hz?(side.y>=pos?1:-1):(side.x>=pos?1:-1);return{id:'c'+Date.now().toString(36),name:nextCutName(),axis,pos,lo,hi,dir};}
+function openCut(id){const c=cutOf(id);if(!c)return;activeCut=null;setView(c.axis);activeCut=id;const v=VIEWS[c.axis],m=cutMirror(c);
+  if((v.mx||1)!==m){v.mx=m;}setPlane(Math.round(c.pos*10),true);renderCutTabs();fit2d();
+  msg(`Corte ${c.name}: olhando ${c.axis==='front'?(c.dir>0?'para baixo da planta':'para cima da planta'):(c.dir>0?'para a direita da planta':'para a esquerda da planta')} · peças cortadas em destaque, as de trás apagadas.`,6000);}
+function leaveCut(){if(!activeCut)return;activeCut=null;['front','side'].forEach(v=>{if((VIEWS[v].mx||1)!==1){VIEWS[v].mx=1;VIEWS[v].init=false;}});renderCutTabs();}
+function renderCutTabs(){const box=$('vtabs');box.querySelectorAll('[data-cut]').forEach(b=>b.remove());
+  (S.cuts||[]).forEach(c=>{const b=document.createElement('button');b.className='btn cut'+(activeCut===c.id?' on':'');b.dataset.cut=c.id;b.textContent='Corte '+c.name;b.title='Clique para abrir · clique de novo (ou botão direito) para renomear, inverter ou apagar';
+    b.onclick=()=>{if(activeCut===c.id)editCut(c.id);else openCut(c.id);};b.oncontextmenu=e=>{e.preventDefault();editCut(c.id);};box.appendChild(b);});
+  box.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('on',!activeCut&&b.dataset.view===VIEW));}
+async function editCut(id){const c=cutOf(id);if(!c)return;
+  const f=await ask('Corte '+c.name,`<label class="drow"><span>Nome</span><input name="n" value="${esc(c.name)}" maxlength="12"></label>
+    <label class="dopt"><input type="checkbox" name="inv"><span>Inverter o lado para onde o corte olha</span></label>
+    <label class="dopt"><input type="checkbox" name="del"><span><b>Apagar este corte</b></span></label>`,'Aplicar');
+  if(!f)return;if(f.del){S.cuts=S.cuts.filter(x=>x.id!==id);if(activeCut===id){leaveCut();setView('top');}save();renderCutTabs();draw();msg('Corte apagado.');return;}
+  if(f.n&&String(f.n).trim())c.name=String(f.n).trim().toUpperCase();if(f.inv)c.dir=-c.dir;save();if(activeCut===id)openCut(id);else renderCutTabs();draw();}
+function drawCuts(){if(VIEW==='top'&&cmd&&cmd.name==='section'&&(cmd.step==='ct2'||cmd.step==='ct3')){const a=cmd.a,m=cmd.step==='ct2'?mouse:cmd.b,hz=Math.abs(m.x-a.x)>=Math.abs(m.y-a.y),b=cmd.step==='ct3'?cmd.b:hz?{x:m.x,y:a.y}:{x:a.x,y:m.y};
+    const pv=cmd.step==='ct3'?makeCut(a,b,{x:raw.x,y:raw.y}):{axis:hz?'front':'side',pos:hz?a.y:a.x,lo:hz?Math.min(a.x,b.x):Math.min(a.y,b.y),hi:hz?Math.max(a.x,b.x):Math.max(a.y,b.y),dir:0,name:nextCutName()};S._pv=pv;}
+  const list=[...(S.cuts||[]),...(S._pv?[S._pv]:[])];S._pv=null;if(VIEW!=='top'||!list.length)return;const col=css('--accent');
+  list.forEach(c=>{const hz=c.axis==='front',A=hz?[c.lo,c.pos]:[c.pos,c.lo],B=hz?[c.hi,c.pos]:[c.pos,c.hi],a=W2S(...A),b=W2S(...B),n=hz?[0,c.dir]:[c.dir*MX(),0];
+    ctx.save();ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=1.6;ctx.setLineDash([18,4,3,4]);ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();ctx.setLineDash([]);ctx.lineWidth=2.2;
+    if(c.dir)[a,b].forEach(q=>{const t=[q[0]+n[0]*26,q[1]+n[1]*26];ctx.beginPath();ctx.moveTo(...q);ctx.lineTo(...t);ctx.stroke();ctx.beginPath();ctx.moveTo(t[0]+n[0]*6,t[1]+n[1]*6);ctx.lineTo(t[0]-n[1]*5-n[0]*2,t[1]+n[0]*5-n[1]*2);ctx.lineTo(t[0]+n[1]*5-n[0]*2,t[1]-n[0]*5-n[1]*2);ctx.closePath();ctx.fill();
+      const u=hz?[Math.sign(b[0]-a[0])||1,0]:[0,Math.sign(b[1]-a[1])||1],sgn=q===a?-1:1,lx=q[0]+u[0]*16*sgn,ly=q[1]+u[1]*16*sgn;ctx.font='700 15px "IBM Plex Sans Condensed",sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(c.name,lx,ly);});
+    ctx.restore();});
+  ctx.textAlign='left';ctx.textBaseline='alphabetic';}
 const VIEWS={top:{s:1,ox:0,oy:0,init:false,z:0},front:{s:1,ox:0,oy:0,init:false,z:0},side:{s:1,ox:0,oy:0,init:false,z:0}};
 let view=VIEWS.top;
 const VNAME={top:'Planta',front:'Frontal',side:'Lateral'};
@@ -501,7 +541,7 @@ const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim
 const selPieces=()=>[...sel].map(byId).filter(Boolean);
 const same=p=>p.view===VIEW;
 
-const ALIAS={l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
+const ALIAS={corte:'section',section:'section',sec:'section',l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
   m:'move',move:'move',co:'copy',cp:'copy',copy:'copy',ro:'rotate',rotate:'rotate',mi:'mirror',mirror:'mirror',
   ar:'array',array:'array',o:'offset',offset:'offset',tr:'trim',trim:'trim',ex:'extend',extend:'extend',
   f:'fillet',fillet:'fillet',ma:'matchprop',matchprop:'matchprop',di:'dist',dist:'dist',
@@ -509,7 +549,7 @@ const ALIAS={l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje
   imp:'import',import:'import',exp:'export',export:'export',save:'save',qsave:'save',open:'open',
   iso:'isolate',isolar:'isolate',oc:'hide',ocultar:'hide',hide:'hide',mt:'showall',mostrar:'showall',unhide:'showall',unisolate:'showall',pp:'prodsheet',prancha:'prodsheet',em:'splice',emenda:'splice',br:'splice',ea:'autosplice',emendas:'autosplice',j:'weld',join:'weld',sd:'weld',soldar:'weld',rec:'rect',rectang:'rect',rect:'rect',cn:'plate',conector:'plate',g:'group',group:'group',xl:'grid',xline:'grid',grade:'grid',sc:'scale',scale:'scale',rm:'refmove',refmove:'refmove',rc:'refcal',refcal:'refcal',
   pla:'v-top',planta:'v-top',fr:'v-front',frontal:'v-front',la:'v-side',lateral:'v-side'};
-const NAME={line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
+const NAME={section:'CORTE',line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
   offset:'OFFSET',trim:'TRIM',extend:'EXTEND',fillet:'FILLET',matchprop:'MATCHPROP',dist:'DIST',erase:'ERASE',fit:'ENCAIXE',scale:'SCALE',grid:'XLINE',group:'TESOURA MATRIZ',isolate:'ISOLAR',hide:'OCULTAR',plate:'CONECTOR',rect:'RECTANG',weld:'SOLDAR',splice:'EMENDA',autosplice:'EMENDAS AUTOMÁTICAS',refmove:'REFMOVE',refcal:'REFCAL'};
 const NEEDSEL=['move','copy','rotate','mirror','array','erase','scale','group','isolate','hide','autosplice'];
 const NUMSTEP=['p2','dest','angle','dist','count','calv','factor','rnew','cn2','rc2','em1'];
@@ -526,7 +566,7 @@ function setView(v){
   if(!view.init){view.init=true;fit2d();}
   refresh();msg(v==='top'?'Planta: cota base = altura da peça':v==='front'?'Frontal: Plano Y = posição da tesoura na planta':'Lateral: Plano X = posição na planta');
 }
-document.querySelectorAll('#vtabs .btn').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+document.querySelectorAll('#vtabs .btn').forEach(b=>b.onclick=()=>{leaveCut();setView(b.dataset.view);renderCutTabs();});
 // mundo W = [X, Y(planta), H(altura)]
 function corners3(p){
   const fp=footprint(p),{t}=dims(p),out=[];
@@ -569,6 +609,7 @@ function run(name){
   if(name==='post'&&VIEW!=='top'){msg('Pilar é lançado na Planta. Nas vistas, desenhe com L e uma peça linear.');return;}
   lastCmd=name;cmd={name,step:null};
   if(name==='line'||name==='pline'){const m0=mat(S.mat);if(m0.post||m0.plate){const m=S.mats.find(x=>!x.post&&!x.plate);S.mat=m.id;renderMats();}cmd.step='p1';cmd.pts=[];cmd.ids=[];}
+  else if(name==='section'){if(VIEW!=='top'){leaveCut();setView('top');renderCutTabs();}cmd.step='ct1';}
   else if(name==='slab'){
     if(VIEW!=='top'){msg('A laje por área é lançada na Planta, sobre as paredes.',6000);cmd=null;refresh();return;}
     if(mat(S.mat).kind!=='slab'){const f=S.mats.find(x=>x.kind==='slab');if(!f){msg('Cadastre uma laje na biblioteca (Paredes e lajes).',6000);cmd=null;refresh();return;}S.mat=f.id;renderMats();}
@@ -980,16 +1021,17 @@ function resize(){
   cv.width=r.width*d;cv.height=r.height*d;ctx.setTransform(d,0,0,d,0,0);draw();
   const r3=$('v3dWrap').getBoundingClientRect();renderer.setSize(r3.width,r3.height);cam.aspect=r3.width/r3.height;cam.updateProjectionMatrix();
 }
-const W2S=(x,y)=>[x*view.s+view.ox,y*view.s+view.oy];
-const S2W=(x,y)=>[(x-view.ox)/view.s,(y-view.oy)/view.s];
+const MX=()=>view.mx||1;
+const W2S=(x,y)=>[x*view.s*MX()+view.ox,y*view.s+view.oy];
+const S2W=(x,y)=>[(x-view.ox)/(view.s*MX()),(y-view.oy)/view.s];
 function fit2d(){
   const r=cv.getBoundingClientRect(),b=bounds(),w=b.x2-b.x1||400,h=b.y2-b.y1||300;
   view.s=Math.max(.05,Math.min((r.width-80)/w,(r.height-80)/h));
-  view.ox=r.width/2-(b.x1+w/2)*view.s;view.oy=r.height/2-(b.y1+h/2)*view.s;draw();
+  view.ox=r.width/2-(b.x1+w/2)*view.s*MX();view.oy=r.height/2-(b.y1+h/2)*view.s;draw();
 }
 function bounds(){
   let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9;const add=(x,y)=>{x1=Math.min(x1,x);y1=Math.min(y1,y);x2=Math.max(x2,x);y2=Math.max(y2,y);};
-  const vp=S.pieces.filter(isOn);(vp.length?vp:S.pieces).forEach(p=>shape2(p).forEach(([x,y])=>add(x,y)));
+  const vp=S.pieces.filter(p=>activeCut?vis(p)!=='off':isOn(p));(vp.length?vp:S.pieces).forEach(p=>shape2(p).forEach(([x,y])=>add(x,y)));
   const R=S.refs&&S.refs[VIEW];if(R){R.lines.forEach(l=>{add(l[0],l[1]);add(l[2],l[3]);});(R.texts||[]).forEach(t=>add(t[0],t[1]));if(R.img){add(R.img.x,R.img.y);add(R.img.x+R.img.w,R.img.y+R.img.h);}}
   if(x1>x2)return VIEW==='top'?{x1:-100,y1:-100,x2:400,y2:300}:{x1:-100,y1:-350,x2:700,y2:50};
   if(VIEW!=='top')y2=Math.max(y2,0);
@@ -1054,14 +1096,14 @@ function draw(){
   const r=cv.getBoundingClientRect(),W=r.width,H=r.height;
   ctx.fillStyle=css('--plan');ctx.fillRect(0,0,W,H);
   [[10,css('--grid')],[100,css('--grid2')]].forEach(([st,c])=>{if(st*view.s<6)return;ctx.strokeStyle=c;ctx.lineWidth=1;ctx.beginPath();
-    const[a,b]=S2W(0,0),[e,f]=S2W(W,H);
+    const[a0,b]=S2W(0,0),[e0,f]=S2W(W,H),a=Math.min(a0,e0),e=Math.max(a0,e0);
     for(let x=Math.floor(a/st)*st;x<=e;x+=st){const s=Math.round(W2S(x,0)[0])+.5;ctx.moveTo(s,0);ctx.lineTo(s,H);}
     for(let y=Math.floor(b/st)*st;y<=f;y+=st){const t=Math.round(W2S(0,y)[1])+.5;ctx.moveTo(0,t);ctx.lineTo(W,t);}
     ctx.stroke();});
   const[ox,oy]=W2S(0,0);
   if(VIEW!=='top'){ctx.strokeStyle=css('--muted');ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,Math.round(oy)+.5);ctx.lineTo(W,Math.round(oy)+.5);ctx.stroke();
     ctx.fillStyle=css('--muted');ctx.font='11px JetBrains Mono, monospace';ctx.textAlign='left';ctx.fillText('nível 0',6,oy-5);}
-  ctx.lineWidth=1.5;ctx.strokeStyle='#c2402c';ctx.beginPath();ctx.moveTo(ox,oy);ctx.lineTo(ox+30,oy);ctx.stroke();ctx.strokeStyle='#2c9a4a';ctx.beginPath();ctx.moveTo(ox,oy);ctx.lineTo(ox,oy-(VIEW==='top'?-30:30));ctx.stroke();
+  ctx.lineWidth=1.5;ctx.strokeStyle='#c2402c';ctx.beginPath();ctx.moveTo(ox,oy);ctx.lineTo(ox+30*MX(),oy);ctx.stroke();ctx.strokeStyle='#2c9a4a';ctx.beginPath();ctx.moveTo(ox,oy);ctx.lineTo(ox,oy-(VIEW==='top'?-30:30));ctx.stroke();
   drawRefs();
   const selC=css('--sel');
   const selG=new Set(selPieces().map(p=>p.gid).filter(g=>g&&S.groups[g]));
@@ -1088,7 +1130,7 @@ function draw(){
   const ownB=order.filter(({p})=>same(p)&&isBuild(p));
   ownB.forEach(({p})=>drawOne(p,true));buildOutlines(ownB.map(o=>o.p).filter(isOn));
   order.forEach(({p})=>{if(!(same(p)&&isBuild(p)))drawOne(p,false);});
-  drawGrids();
+  drawGrids();drawCuts();
   if(sel.size===1){const p=selPieces()[0];if(p&&!p.post&&!p.poly&&same(p))dim(p.x1,p.y1,p.x2,p.y2,fmm(len3(p))+' mm');}
   ghosts().forEach(g=>{poly(shape2(g));ctx.globalAlpha=.4;ctx.fillStyle=mat(g.mat).color;ctx.fill();ctx.globalAlpha=1;ctx.setLineDash([5,4]);ctx.strokeStyle=css('--accent');ctx.lineWidth=1.5;ctx.stroke();ctx.setLineDash([]);});
   const xf=curXforms();if(xf.length){const L=[...selR].filter(o=>!isTxt(o)).slice(0,6000),T=[...selR].filter(isTxt).slice(0,400);ctx.strokeStyle=css('--accent');ctx.lineWidth=1;ctx.setLineDash([4,3]);ctx.beginPath();
@@ -1235,7 +1277,7 @@ function hit(wx,wy,ownOnly){
   return best;
 }
 function applyWindow(){
-  const[ax,ay]=S2W(Math.min(win.sx,win.ex),Math.min(win.sy,win.ey)),[bx,by]=S2W(Math.max(win.sx,win.ex),Math.max(win.sy,win.ey));
+  const[ax0,ay]=S2W(Math.min(win.sx,win.ex),Math.min(win.sy,win.ey)),[bx0,by]=S2W(Math.max(win.sx,win.ex),Math.max(win.sy,win.ey)),ax=Math.min(ax0,bx0),bx=Math.max(ax0,bx0);
   const inside=([x,y])=>x>=ax&&x<=bx&&y>=ay&&y<=by,cross=win.ex<win.sx;
   const R=[[ax,ay],[bx,ay],[bx,by],[ax,by]];
   S.pieces.forEach(p=>{if(!isOn(p))return;const fp=shape2(p);let ok;
@@ -1277,6 +1319,10 @@ cv.addEventListener('pointerdown',e=>{
   if(st==='p1'){cmd.start=p;cmd.pts=[{x:p.x,y:p.y}];cmd.ids=[];cmd.step='p2';}
   else if(st==='p2')addLine(endPoint());
   else if(st==='sl1')placeSlab({x:raw.x,y:raw.y});
+  else if(st==='ct1'){cmd.a=p;cmd.step='ct2';}
+  else if(st==='ct2'){const hz=Math.abs(p.x-cmd.a.x)>=Math.abs(p.y-cmd.a.y),b=hz?{x:p.x,y:cmd.a.y}:{x:cmd.a.x,y:p.y};if(Math.hypot(b.x-cmd.a.x,b.y-cmd.a.y)<1){msg('Arraste a linha de corte.');return;}cmd.b=b;cmd.step='ct3';}
+  else if(st==='ct3'){const c=makeCut(cmd.a,cmd.b,{x:raw.x,y:raw.y});(S.cuts=S.cuts||[]).push(c);save();finish(false);renderCutTabs();draw();
+    msg(`Corte ${c.name} criado. Abra pela aba "Corte ${c.name}" (clique nela de novo para renomear, inverter ou apagar).`,7000);}
   else if(st==='pt'){push();const m=mat(S.mat);S.pieces.push({id:S.nid++,view:'top',mat:S.mat,x1:p.x,y1:p.y,x2:p.x,y2:p.y,z:zvals().z,len:m.len||270,post:true,rot:false});changed();}
   else if(st==='base'){cmd.base=p;cmd.step=n==='rotate'?'angle':n==='mirror'?'axis2':n==='scale'?'factor':'dest';}
   else if(st==='factor'){msg('Digite o fator e Enter, ou R para escalar por uma medida de referência.');}
@@ -1335,7 +1381,7 @@ cv.addEventListener('pointerup',()=>{
   if(win){if(win.moved)applyWindow();else if(!win.shift&&!cmd){sel.clear();selR.clear();}win=null;refresh();}
 });
 cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
-  const[wx,wy]=S2W(sx,sy),f=e.deltaY<0?1.15:1/1.15;view.s=Math.max(.05,Math.min(40,view.s*f));view.ox=sx-wx*view.s;view.oy=sy-wy*view.s;draw();},{passive:false});
+  const[wx,wy]=S2W(sx,sy),f=e.deltaY<0?1.15:1/1.15;view.s=Math.max(.05,Math.min(40,view.s*f));view.ox=sx-wx*view.s*MX();view.oy=sy-wy*view.s;draw();},{passive:false});
 $('fit2d').onclick=fit2d;
 cv.addEventListener('dblclick',e=>{if(cmd||e.button!==0)return;
   const r=cv.getBoundingClientRect(),[wx,wy]=S2W(e.clientX-r.left,e.clientY-r.top),h=hit(wx,wy);
@@ -1390,6 +1436,9 @@ function prompt(){
   const P={
     p1:`${n} ${m.name} ${m.kind?'esp. '+fmm(m.h):fmm(m.b)+'×'+fmm(m.h)} mm${m.kind==='wall'&&VIEW==='top'?' · altura '+fmm(wallH(m))+' [A]':''} · [J = alinhamento: ${JUST_NAME[lineJust]}] · Specify first point:`,
     p2:m.len?`${n} · Peça pronta de ${fmm(m.len)} mm — clique a direção · Enter encerra:`:`${n} · Specify next point or [comprimento + Enter] · [C = fechar, U = desfaz ponto, J = ${JUST_NAME[lineJust]}${m.kind==='wall'&&VIEW==='top'?', A = altura '+fmm(wallH(m)):''}]:`,
+    ct1:`${n} · Primeiro ponto da linha de corte (horizontal → vista frontal, vertical → lateral):`,
+    ct2:`${n} · Segundo ponto da linha de corte:`,
+    ct3:`${n} · Clique do lado para onde o corte deve olhar:`,
     sl1:`${n} ${m.name} · Clique na face EXTERNA das paredes (laje até a face de fora) ou na face INTERNA / dentro do ambiente (laje até a face de dentro) · Enter encerra:`,
     pt:`PILAR ${m.name} · Specify point:`,
     select:`${n} · Select objects (${sel.size+selR.size}) or [P = anterior, L = último, ALL = tudo] · Enter confirma:`,
@@ -1686,7 +1735,7 @@ const refImgs={};
 function refImg(v){const r=S.refs[v].img;if(!r)return null;let c=refImgs[v];if(!c||c._src!==r.src){c=new Image();c._src=r.src;c.onload=()=>draw();c.src=r.src;refImgs[v]=c;}return c.complete&&c.naturalWidth?c:null;}
 function drawRefs(){
   const R=S.refs&&S.refs[VIEW];if(!R)return;
-  if(R.img){const im=refImg(VIEW);if(im){const[a,b]=W2S(R.img.x,R.img.y);ctx.globalAlpha=R.img.op??.55;ctx.drawImage(im,a,b,R.img.w*view.s,R.img.h*view.s);ctx.globalAlpha=1;}}
+  if(R.img){const im=refImg(VIEW);if(im){const[a,b]=W2S(R.img.x,R.img.y);ctx.globalAlpha=R.img.op??.55;ctx.drawImage(im,MX()<0?a-R.img.w*view.s:a,b,R.img.w*view.s,R.img.h*view.s);ctx.globalAlpha=1;}}
   if(R.lines.length){ctx.strokeStyle=css('--muted');ctx.lineWidth=1;ctx.beginPath();R.lines.forEach(l=>{ctx.moveTo(...W2S(l[0],l[1]));ctx.lineTo(...W2S(l[2],l[3]));});ctx.stroke();}
   if(R.texts.length){ctx.fillStyle=css('--muted');ctx.textAlign='left';ctx.textBaseline='alphabetic';
     const selC=css('--sel');R.texts.forEach(t=>{const px=t[2]*view.s;if(px<3||px>600)return;const[a,b]=W2S(t[0],t[1]);ctx.save();ctx.translate(a,b);if(t[4])ctx.rotate(t[4]);ctx.font=`${px}px "IBM Plex Sans Condensed",Arial,sans-serif`;if(selR.has(t))ctx.fillStyle=selC;ctx.fillText(t[3],0,0);ctx.restore();});}
@@ -1842,15 +1891,15 @@ function makeZip(files){
 }
 
 // ---- projeto ----
-function projectJSON(){return JSON.stringify({app:'EcoCAD 3D',formato:1,salvoEm:new Date().toISOString(),name:S.name||'',mats:S.mats,mat:S.mat,nid:S.nid,pieces:S.pieces,refs:S.refs,groups:S.groups||{}});}
+function projectJSON(){return JSON.stringify({app:'EcoCAD 3D',formato:1,salvoEm:new Date().toISOString(),name:S.name||'',mats:S.mats,mat:S.mat,nid:S.nid,pieces:S.pieces,refs:S.refs,groups:S.groups||{},cuts:S.cuts||[]});}
 function saveProject(saveAs){return offer(fileBase()+(DESK?'.ecocad':'.ecocad.json'),projectJSON(),{project:true,saveAs:!!saveAs});}
 async function openProjectText(name,text){const o=JSON.parse(text);if(S.pieces.length&&!(await ask('Abrir projeto',`<p>Abrir <b>${esc(name)}</b> substitui o desenho atual. Se precisar do desenho atual, salve antes.</p>`,'Abrir')))return false;loadProject(o);msg(`Projeto ${name} aberto.`,5000);return true;}
 if(DESK&&DESK.onOpenFile)DESK.onOpenFile(f=>{openProjectText(f.name,f.text).catch(e=>msg('Erro ao abrir: '+e.message,8000));});
 function loadProject(o){
   if(!o||!Array.isArray(o.pieces))throw new Error('o arquivo não é um projeto do EcoCAD 3D.');
-  S={mats:Array.isArray(o.mats)&&o.mats.length?o.mats:DEF_MATS.slice(),pieces:o.pieces,mat:o.mat||'viga',nid:o.nid||(Math.max(0,...o.pieces.map(p=>p.id||0))+1),name:o.name||'',refs:o.refs,groups:o.groups&&typeof o.groups==='object'?o.groups:{}};
+  S={mats:Array.isArray(o.mats)&&o.mats.length?o.mats:DEF_MATS.slice(),pieces:o.pieces,mat:o.mat||'viga',nid:o.nid||(Math.max(0,...o.pieces.map(p=>p.id||0))+1),name:o.name||'',refs:o.refs,groups:o.groups&&typeof o.groups==='object'?o.groups:{},cuts:Array.isArray(o.cuts)?o.cuts:[]};
   ensureRefs();S.pieces.forEach(p=>{if(!p.view)p.view='top';});hist.length=0;sel.clear();selR.clear();cmd=null;typed='';refSig='';
-  $('pname').value=S.name;renderMats();VIEWS3.forEach(v=>VIEWS[v].init=false);VIEWS[VIEW].init=true;changed();fit2d();fit3d();
+  $('pname').value=S.name;activeCut=null;['front','side'].forEach(v=>VIEWS[v].mx=1);renderCutTabs();renderMats();VIEWS3.forEach(v=>VIEWS[v].init=false);VIEWS[VIEW].init=true;changed();fit2d();fit3d();
 }
 
 // ---- geometria para exportar (X, Y para cima, Z altura) ----
@@ -2529,7 +2578,7 @@ document.querySelectorAll('[data-ic]').forEach(b=>{b.setAttribute('aria-label',b
   b.innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true">${IC[b.dataset.ic]||''}</svg>`+(b.classList.contains('wide')?'<svg class="car" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5"/></svg>':'');});
 
 // ================= início =================
-bindPlaneBar();syncTrackBtns();
+bindPlaneBar();syncTrackBtns();renderCutTabs();
 $('pname').value=S.name||'';
 addEventListener('resize',resize);
 renderMats();resize();VIEWS.top.init=true;fit2d();changed();fit3d();
