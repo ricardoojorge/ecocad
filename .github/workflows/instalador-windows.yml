@@ -15,16 +15,16 @@ jobs:
         shell: bash
         working-directory: desktop
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
       - name: Endereço do EcoCAD (GitHub Pages deste repositório ou domínio próprio)
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"; REPO="${GITHUB_REPOSITORY#*/}"
           if [ -f ../docs/CNAME ]; then URL="https://$(tr -d ' \r\n' < ../docs/CNAME)/"; else URL="https://${OWNER}.github.io/${REPO}/"; fi
           echo "Endereço: $URL"
-          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.ecocad.url=process.argv[1];fs.writeFileSync('package.json',JSON.stringify(p,null,2));" "$URL"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));const [o,r]=process.argv[2].split('/');p.ecocad.url=process.argv[1];p.repository='https://github.com/'+o+'/'+r;p.build.publish=[{provider:'github',owner:o,repo:r,releaseType:'release'}];fs.writeFileSync('package.json',JSON.stringify(p,null,2));" "$URL" "$GITHUB_REPOSITORY"
       - name: Bibliotecas (3D e PDF) para funcionar sem internet
         run: |
           mkdir -p vendor/pdfjs fallback
