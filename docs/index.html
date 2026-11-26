@@ -327,7 +327,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.26-8';
+const APP_VER='2026.11.26-9';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -1078,7 +1078,7 @@ function undo(){if(!hist.length){msg('Nada para desfazer.');return;}const e=hist
 function resize(){
   const r=$('planWrap').getBoundingClientRect(),d=devicePixelRatio||1;
   cv.width=r.width*d;cv.height=r.height*d;ctx.setTransform(d,0,0,d,0,0);draw();
-  const r3=$('v3dWrap').getBoundingClientRect();if(r3.width>0&&r3.height>0){renderer.setSize(r3.width,r3.height);cam.aspect=r3.width/r3.height;cam.updateProjectionMatrix();}
+  const r3=$('v3dWrap').getBoundingClientRect();if(r3.width>0&&r3.height>0){renderer.setSize(r3.width,r3.height);cam.aspect=r3.width/r3.height;cam.updateProjectionMatrix();req3d();}
 }
 const MX=()=>view.mx||1;
 const W2S=(x,y)=>[x*view.s*MX()+view.ox,y*view.s+view.oy];
@@ -1484,9 +1484,9 @@ window.addEventListener('keydown',e=>{
     if(k==='a'&&mat(S.mat).kind==='wall'&&VIEW==='top'){e.preventDefault();askWallH(mat(S.mat)).then(ok=>{if(ok&&cmd&&cmd.pts&&cmd.pts.length>1)rebuildChain(false);refresh();});return;}}
   if(e.key==='Enter'||e.key===' '){e.preventDefault();enter();return;}
   const numMode=cmd&&NUMSTEP.includes(cmd.step)&&!cmdBuf;
-  if(numMode&&(/^[0-9.,\-]$/.test(e.key)||(cmd.step==='rc2'&&e.key===';'))){typed+=e.key;refresh();return;}
-  if(/^[a-zA-Z]$/.test(e.key)){cmdBuf+=e.key.toLowerCase();typed='';refresh();return;}
-  if(e.key==='Backspace'){e.preventDefault();if(typed)typed=typed.slice(0,-1);else if(cmdBuf)cmdBuf=cmdBuf.slice(0,-1);else if(!cmd&&hasSel()){run('erase');return;}refresh();return;}
+  if(numMode&&(/^[0-9.,\-]$/.test(e.key)||(cmd.step==='rc2'&&e.key===';'))){typed+=e.key;refreshLite();return;}
+  if(/^[a-zA-Z]$/.test(e.key)){cmdBuf+=e.key.toLowerCase();typed='';refreshLite();return;}
+  if(e.key==='Backspace'){e.preventDefault();if(typed)typed=typed.slice(0,-1);else if(cmdBuf)cmdBuf=cmdBuf.slice(0,-1);else if(!cmd&&hasSel()){run('erase');return;}refreshLite();return;}
   if(e.key==='Delete'&&hasSel()&&!cmd){run('erase');return;}
 },true);
 // Esc: cancela comando e seleção. O keyup é reserva, caso a tela que hospeda a página segure o keydown.
@@ -1711,13 +1711,13 @@ el3.addEventListener('pointermove',e=>{
   cam.position.sub(P).applyQuaternion(q).add(P);ctl.target.sub(P).applyQuaternion(q).add(P);
   cam.lookAt(ctl.target);ctl.update();
 });
-const endOrb=()=>{if(orb){orb=null;pivotMark.visible=false;}};
+const endOrb=()=>{if(orb){orb=null;pivotMark.visible=false;req3d();}};
 el3.addEventListener('pointerup',endOrb);el3.addEventListener('pointercancel',endOrb);
 scene.add(new THREE.HemisphereLight(0xffffff,0x6b6150,.75));
 const sun=new THREE.DirectionalLight(0xffffff,.65);sun.position.set(500,1200,700);scene.add(sun);
-let grid=null;const group=new THREE.Group();scene.add(group);
+let grid=null,need3d=true;const req3d=()=>{need3d=true;};const group=new THREE.Group();scene.add(group);
 function buildGrid(){if(grid)scene.remove(grid);const t=document.documentElement.dataset.theme,dark=t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);
-  grid=new THREE.GridHelper(4000,40,dark?0x3a4a47:0xb4bfbc,dark?0x232d2c:0xd5dcda);scene.add(grid);}
+  grid=new THREE.GridHelper(4000,40,dark?0x3a4a47:0xb4bfbc,dark?0x232d2c:0xd5dcda);scene.add(grid);req3d();}
 buildGrid();
 // desenho (x, prof, y) -> mundo three.js para as vistas de elevação
 const VMAT={front:new THREE.Matrix4().set(1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1),
@@ -1778,17 +1778,26 @@ function mesh(p){
   if(elev){obj.updateMatrix();obj.applyMatrix4(VMAT[p.view]);obj.position.add(p.view==='front'?new THREE.Vector3(0,0,p.z):new THREE.Vector3(p.z,0,0));}
   return obj;
 }
-function sync3d(){
-  while(group.children.length){const c=group.children.pop();c.traverse(o=>{o.geometry&&o.geometry.dispose();if(o.material)[].concat(o.material).forEach(m=>{if(!m.userData||!m.userData.keep)m.dispose();});});}
-  S.pieces.forEach(p=>{if(!shownHI(p))return;const o=mesh(p);if(o)group.add(o);});
+// 3D incremental: só refaz a peça que mudou (antes refazia todas a cada clique/tecla)
+const meshCache=new Map();
+const disposeObj=c=>c.traverse(o=>{o.geometry&&o.geometry.dispose();if(o.material)[].concat(o.material).forEach(m=>{if(!m.userData||!m.userData.keep)m.dispose();});});
+function sync3d(){const seen=new Set();let dirty=false;
+  S.pieces.forEach(p=>{if(!shownHI(p))return;const sig=JSON.stringify(p)+'|'+JSON.stringify(mat(p.mat))+'|'+(sel.has(p.id)?1:0);let c=meshCache.get(p.id);
+    if(!c||c.sig!==sig){if(c){group.remove(c.obj);disposeObj(c.obj);}const o=mesh(p);dirty=true;if(!o){meshCache.delete(p.id);return;}c={sig,obj:o};meshCache.set(p.id,c);group.add(o);}
+    seen.add(p.id);});
+  meshCache.forEach((c,id)=>{if(!seen.has(id)){group.remove(c.obj);disposeObj(c.obj);meshCache.delete(id);dirty=true;}});
+  if(dirty)req3d();
 }
 function fit3d(){const box=new THREE.Box3().setFromObject(group);if(box.isEmpty())return;const c=box.getCenter(new THREE.Vector3()),r=box.getSize(new THREE.Vector3()).length();
   ctl.target.copy(c);cam.position.copy(c).add(new THREE.Vector3(.7,.6,.9).normalize().multiplyScalar(r*1.1));ctl.update();}
 $('fit3d').onclick=fit3d;
-(function loop(){requestAnimationFrame(loop);ctl.update();renderer.render(scene,cam);})();
+let camSig='';
+(function loop(){requestAnimationFrame(loop);ctl.update();const p=cam.position||{},q=cam.quaternion||{},k=[p.x,p.y,p.z,q.x,q.y,q.z,q.w,cam.aspect,cam.fov].map(v=>(+v||0).toFixed(5)).join(',');
+  if(k!==camSig||need3d){camSig=k;need3d=false;renderer.render(scene,cam);}})();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{buildGrid();draw();});
 
 function refresh(){props();sync3d();status();renderRefPanel();renderPlaneBar();draw();}
+function refreshLite(){status();draw();}
 function changed(){syncGroups();renderPlates();[...sel].forEach(id=>{if(!byId(id))sel.delete(id);});save();cutlist();refresh();}
 
 // ================= arquivos: salvar, abrir, importar, exportar =================
