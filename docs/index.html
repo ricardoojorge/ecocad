@@ -327,7 +327,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.26-7';
+const APP_VER='2026.11.26-8';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -821,7 +821,7 @@ function pickMontante(wx,wy){if(VIEW!=='side')return null;let best=null,bd=6/vie
   S.pieces.forEach(p=>{if(!isMontante(p)||!isOn(p))return;const d=distPoly(shape2(p),wx,wy);if(d<bd){bd=d;best=p;}});if(!best)return null;
   const W=corners3(best),zs=W.map(w=>w[2]),dm=dims(best);return{p:best,yc:best.z,xm:(best.x1+best.x2)/2,wm:dm.w,tm:dm.t,zlo:Math.min(...zs),zhi:Math.max(...zs)};}
 function xRot(){const m=mat(S.mat);return m.h<m.b;} // peça deitada no montante: a espessura menor fica para fora do plano
-const CV_LMAX=250,CV_SOBRA=10; // tábua padrão de 2,5 m (pode ser menor); sobra total além dos montantes (cm)
+const CV_LMAX=250,CV_SOBRA=2; // tábua padrão de 2,5 m (pode ser menor); sobra total além das faces dos montantes das pontas (cm)
 // trechos do montante (lado s da face) ocupados por outras peças/conectores da mesma tesoura: o travamento não pode pegar ali
 function mBlocked(M,s,bt){const x0=M.xm+s*M.wm/2,x1=M.xm+s*(M.wm/2+bt),a=Math.min(x0,x1),b=Math.max(x0,x1),out=[];
   S.pieces.forEach(p=>{if(p.id===M.p.id||p.view!=='front'||Math.abs(p.z-M.yc)>M.tm/2+3)return;
@@ -834,19 +834,20 @@ function alignedBetween(A,B){const lo=Math.min(A.yc,B.yc),hi=Math.max(A.yc,B.yc)
 // geometria do X: maior altura possível, tábua ≤ L (ou 2,5 m), pontas fora de diagonais e conectores (sobe se precisar)
 function xGeom(A,B,Lwant){const ck=A.p.id+'|'+B.p.id+'|'+(Lwant||0)+'|'+S.mat;if(cmd&&cmd._xg&&ck in cmd._xg)return cmd._xg[ck];const r=xGeom0(A,B,Lwant);if(cmd)(cmd._xg=cmd._xg||{})[ck]=r;return r;}
 function xGeom0(A,B,Lwant){const q={view:'side',mat:S.mat,rot:xRot()},d=dims(q),bw=d.w,bt=d.t,D=Math.abs(B.yc-A.yc),tm=Math.max(A.tm,B.tm);
-  const Lcap=Math.min(Lwant>0?Lwant:CV_LMAX,CV_LMAX),Lin=Lcap-tm-CV_SOBRA;if(Lin<=D+1)return{err:`O vão entre essas tesouras (${fmm(D)} mm) não cabe numa peça de ${fmm(Lcap)} mm. Escolha tesouras mais próximas.`};
+  // a tábua cobre o montante das pontas inteiro: L ≥ Lc·(1 + tm/D) + sobra  (tm/cosθ = tm·Lc/D)
+  const Lcap=Math.min(Lwant>0?Lwant:CV_LMAX,CV_LMAX),Lin=(Lcap-CV_SOBRA)/(1+tm/Math.max(D,1));if(Lin<=D+1)return{err:`O vão entre essas tesouras (${fmm(D)} mm) não cabe numa peça de ${fmm(Lcap)} mm cobrindo os montantes das pontas (precisa de mais de ${fmm(Math.ceil(D*(1+tm/D)+CV_SOBRA))} mm). Escolha tesouras mais próximas.`};
   const Hcap=Math.sqrt(Lin*Lin-D*D),mids=alignedBetween(A,B),Ms=[A,B,...mids],blk=new Map();
   Ms.forEach(M=>[1,-1].forEach(sd=>blk.set(M.p.id+'|'+sd,mBlocked(M,sd,bt))));
   const ok=(M,sd,zc,H)=>{const th=Math.atan2(H,D),h=bw/Math.cos(th)+M.tm*Math.tan(th),z0=zc-h/2,z1=zc+h/2;if(z0<M.zlo||z1>M.zhi)return false;return!blk.get(M.p.id+'|'+sd).some(([u,v])=>z1>u&&z0<v);};
   const zmin=Math.max(...Ms.map(M=>M.zlo)),zmax=Math.min(...Ms.map(M=>M.zhi));let best=null;
-  for(let zlo=zmin;zlo<=zmax;zlo+=.5){for(let zhi=Math.min(zmax,zlo+Hcap);zhi>=zlo+15;zhi-=.5){const H=zhi-zlo;if(best&&H<=best.H)break;
+  for(let zlo=zmin;zlo<=zmax;zlo+=.5){for(let zhi=Math.min(zmax,zlo+Hcap);zhi>=zlo+8;zhi-=.5){const H=zhi-zlo;if(best&&H<=best.H)break;
       // X: diagonal 1 (face +) sobe de A para B; diagonal 2 (face −) desce de A para B; nas tesouras do meio, confere o ponto onde a tábua passa
       const fz=(y,za,zb)=>za+(zb-za)*(y-A.yc)/(B.yc-A.yc);
       if(!ok(A,1,zlo,H)||!ok(B,1,zhi,H)||!ok(A,-1,zhi,H)||!ok(B,-1,zlo,H))continue;
       if(mids.some(M=>!ok(M,1,fz(M.yc,zlo,zhi),H)||!ok(M,-1,fz(M.yc,zhi,zlo),H)))continue;
       best={zlo,zhi,H};break;}}
   if(!best)return{err:'Não achei altura livre no montante (diagonais e conectores ocupam tudo) para esse X.'};
-  const Lc=Math.hypot(D,best.H),Ldef=Math.min(Lcap,Math.ceil((Lc+tm+CV_SOBRA)/10)*10);
+  const Lc=Math.hypot(D,best.H),Ldef=Math.min(Lcap,Math.ceil((Lc*(1+tm/D)+CV_SOBRA)/10)*10);
   return{zlo:best.zlo,zhi:best.zhi,Lc,Ldef,Lcap,bw,bt};}
 function xPieces(A,B,L){const g=xGeom(A,B,L);if(!g||g.err)return[];L=Math.min(L||g.Ldef,g.Lcap);const xm=(A.xm+B.xm)/2,wm=Math.max(A.wm,B.wm),out=[];
   [[g.zlo,g.zhi,1],[g.zhi,g.zlo,-1]].forEach(([za,zb,sd])=>{const u1=A.yc,v1=-za,u2=B.yc,v2=-zb,mu=(u1+u2)/2,mv=(v1+v2)/2,l=Math.hypot(u2-u1,v2-v1)||1,du=(u2-u1)/l*L/2,dv=(v2-v1)/l*L/2;
