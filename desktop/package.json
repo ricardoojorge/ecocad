@@ -1,7 +1,7 @@
 {
   "name": "ecocad3d",
   "productName": "EcoCAD 3D",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "EcoCAD 3D — desenho de estruturas de madeira em 3D (Ecoteto & Madeiras)",
   "author": "Ecoteto & Madeiras",
   "main": "main.js",
@@ -22,9 +22,21 @@
   "build": {
     "appId": "br.com.ecoteto.ecocad3d",
     "productName": "EcoCAD 3D",
-    "files": ["main.js", "preload.js", "package.json", "vendor/**/*", "fallback/**/*"],
-    "directories": { "output": "dist", "buildResources": "build" },
-    "win": { "target": "nsis", "artifactName": "EcoCAD-3D-Setup-${version}.${ext}" },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "vendor/**/*",
+      "fallback/**/*"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": "nsis",
+      "artifactName": "EcoCAD-3D-Setup-${version}.${ext}"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
@@ -33,8 +45,18 @@
       "shortcutName": "EcoCAD 3D"
     },
     "fileAssociations": [
-      { "ext": "ecocad", "name": "Projeto EcoCAD", "description": "Projeto EcoCAD 3D", "role": "Editor" }
+      {
+        "ext": "ecocad",
+        "name": "Projeto EcoCAD",
+        "description": "Projeto EcoCAD 3D",
+        "role": "Editor"
+      }
     ],
-    "publish": [{ "provider": "github", "releaseType": "release" }]
+    "publish": [
+      {
+        "provider": "github",
+        "releaseType": "release"
+      }
+    ]
   }
 }

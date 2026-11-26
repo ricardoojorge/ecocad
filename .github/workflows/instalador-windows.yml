@@ -1,10 +1,13 @@
 # Gera o instalador do Windows (EcoCAD-3D-Setup-x.y.z.exe) e publica em "Releases".
 # Rodar: aba Actions › "Instalador Windows" › Run workflow.
-# Só é preciso rodar de novo quando a VERSÃO do instalador mudar (desktop/package.json).
+# Roda sozinho quando algo em desktop/ muda (nova versão do instalador).
 # Atualizações do EcoCAD em si (docs/index.html) NÃO precisam de instalador novo.
 name: Instalador Windows
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['desktop/**']
 permissions:
   contents: write
 jobs:

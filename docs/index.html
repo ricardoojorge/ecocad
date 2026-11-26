@@ -163,6 +163,7 @@ td.n{text-align:right;font-family:var(--font-num)}
         <button data-exp="all"><b>Tudo em um .zip</b><small>Projeto, DXF 3D, DXF 2D, IFC e PDF</small></button>
       </div>
     </div>
+    <button class="btn ib" id="f-cfg" data-ic="gear" data-tip="Configurações e atualização"></button>
   </div>
   <div class="grp">
     <button class="btn ib" id="undo" data-ic="undo" data-tip="Desfazer · U"></button>
@@ -316,6 +317,8 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
+// versão do EcoCAD (muda a cada atualização publicada)
+const APP_VER='2026.11.26-2';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -2435,11 +2438,40 @@ async function handleFile(f){
 ['dragover','drop'].forEach(t=>document.addEventListener(t,e=>{if(!e.dataTransfer||![...e.dataTransfer.types].includes('Files'))return;e.preventDefault();if(t==='drop'&&e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0]);}));
 
 // ---- menus ----
+// ---- configurações e atualização ----
+async function openSettings(){
+  let info=null;try{info=DESK&&DESK.info?await DESK.info():null;}catch(e){}
+  const shellV=info?info.shell:DESK?await DESK.version().catch(()=>'?'):null;
+  const where=DESK?`Programa do Windows ${shellV||''}`:window.claude?'Claude (artefato)':'Navegador';
+  const shellUpd=info&&info.shellUpdate;
+  const body=`<div class="refbox">
+    <div class="drow"><span>Versão do EcoCAD</span><b style="font-family:var(--font-num)">${APP_VER}</b></div>
+    <div class="drow"><span>Rodando em</span><span>${esc(where)}</span></div>
+    ${info&&info.url?`<div class="drow"><span>Atualizações de</span><span style="font-family:var(--font-num);font-size:11.5px;word-break:break-all">${esc(info.url)}</span></div>`:''}
+    ${shellUpd==='pronto'?`<p><b>Há uma versão nova do programa instalado</b> (${esc(info.shellNext||'')}). Ela é instalada ao fechar o EcoCAD, ou agora pelo botão abaixo.</p>`:''}
+    <div class="refact"><button type="button" class="pbtn" id="cfg-upd">Buscar atualização agora</button>${shellUpd==='pronto'?'<button type="button" class="pbtn" id="cfg-shell">Reiniciar e instalar programa</button>':''}</div>
+    <p class="hint" id="cfg-st">O desenho atual fica guardado; a página recarrega com a versão nova.</p></div>`;
+  const p=ask('Configurações',body,'Fechar');
+  setTimeout(()=>{const st=$('cfg-st'),b=$('cfg-upd');if(!b)return;
+    b.onclick=async()=>{save();b.disabled=true;st.textContent='Buscando…';
+      try{
+        if(DESK&&DESK.updateNow){const r=await DESK.updateNow();
+          if(r==='atualizado'){st.textContent='Versão nova baixada. Recarregando…';setTimeout(()=>location.reload(),400);return;}
+          st.textContent=r==='igual'?'Você já está com a versão mais nova.':r==='offline'?'Sem conexão com a internet. Tente de novo mais tarde.':'Não foi possível buscar ('+r+').';}
+        else if(DESK){st.textContent='Este programa ainda é a versão 1.0.0. Feche e abra o EcoCAD uma vez: ele instala sozinho o atualizador novo, e daí este botão passa a funcionar.';}
+        else if(window.claude){location.reload();return;}
+        else{const u=new URL(location.href);u.searchParams.set('v',Date.now());location.replace(u.toString());return;}
+      }catch(e){st.textContent='Erro: '+((e&&e.message)||e);}
+      b.disabled=false;};
+    const sh=$('cfg-shell');if(sh)sh.onclick=()=>{save();DESK.installShell();};},0);
+  await p;
+}
 function toggleExp(on){const m=$('exp-menu');m.hidden=!on;if(on)setTimeout(()=>m.querySelector('button').focus(),0);}
 $('f-exp').onclick=e=>{e.stopPropagation();toggleExp($('exp-menu').hidden);};
 document.addEventListener('pointerdown',e=>{if(!$('exp-menu').hidden&&!e.target.closest('.menu'))toggleExp(false);});
 $('f-open').onclick=()=>run('open');
 $('f-save').onclick=()=>saveProject();
+$('f-cfg').onclick=()=>openSettings();
 $('f-imp').onclick=()=>openPicker(IMPORT_ACCEPT);
 $('pname').oninput=e=>{S.name=e.target.value;save();};
 document.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>doExport(b.dataset.exp));
@@ -2487,6 +2519,7 @@ const IC={
   rect:'<rect x="3.5" y="6" width="17" height="12"/><circle cx="3.5" cy="6" r="1.6" fill="currentColor"/><circle cx="20.5" cy="18" r="1.6" fill="currentColor"/>',
   grid:'<path d="M17 9v12M3 17h12" stroke-dasharray="4 2"/><circle cx="17" cy="5.5" r="3.2"/><circle cx="5.5" cy="7" r="3.2"/><path d="M5.5 10.2V17"/>',
   snap:'<rect x="7" y="7" width="10" height="10"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/><circle cx="12" cy="12" r="6.5"/>',
   polar:'<path d="M4 20h16"/><path d="M4 20 18 6" stroke-dasharray="2 2.5"/><path d="M11 20a7 7 0 0 0-2-5"/>',
   prev:'<path d="M15 5l-7 7 7 7"/>',next:'<path d="M9 5l7 7-7 7"/>',
   undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',

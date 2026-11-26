@@ -27,6 +27,7 @@ let win = null;
 let projectPath = null; // arquivo do projeto aberto (Ctrl+S grava nele)
 let lastDir = null;
 let pendingFile = null;
+let shellUpdate = null, shellNext = null; // atualização do próprio programa (instalador)
 
 const cacheFile = () => path.join(app.getPath('userData'), 'app', 'index.html');
 
@@ -88,6 +89,12 @@ const FILTERS = {
 
 function setupIpc() {
   ipcMain.handle('version', () => app.getVersion());
+  // engrenagem › Buscar atualização agora: baixa o EcoCAD mais novo; a página recarrega se mudou
+  ipcMain.handle('update-now', async () => refreshApp());
+  ipcMain.handle('info', () => ({ shell: app.getVersion(), url: APP_URL, shellUpdate, shellNext }));
+  ipcMain.handle('install-shell', () => {
+    try { const { autoUpdater } = require('electron-updater'); setImmediate(() => autoUpdater.quitAndInstall(true, true)); return true; } catch (e) { return false; }
+  });
 
   ipcMain.handle('save', async (_e, { name, data, opts }) => {
     try {
@@ -188,7 +195,9 @@ app.whenReady().then(async () => {
   try {
     const { autoUpdater } = require('electron-updater');
     autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on('update-downloaded', i => { shellUpdate = 'pronto'; shellNext = i && i.version; });
     autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 3600 * 1000);
   } catch (e) { /* sem atualizador em modo de desenvolvimento */ }
 });
 
