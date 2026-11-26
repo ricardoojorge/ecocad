@@ -47,7 +47,11 @@ input,select{box-sizing:border-box;max-width:100%}
 .bar .lbl{font-size:11px;letter-spacing:.04em}
 #f-zend[hidden]{display:none}
 .field input{width:60px;padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:var(--plan);font-family:var(--font-num);font-size:13px}
-main{flex:1;min-height:0;display:grid;grid-template-columns:230px 1fr 1fr 260px}
+main{flex:1;min-height:0;display:grid;--mid:minmax(0,1fr) 6px minmax(0,1fr);grid-template-columns:230px var(--mid) 260px}
+.split{cursor:col-resize;background:var(--line);position:relative;touch-action:none}
+.split:hover,.split.drag{background:var(--accent)}
+.split::after{content:'';position:absolute;inset:0 -4px}
+main.only2d #v3dWrap,main.only2d .split,main.only3d #planWrap,main.only3d .split{display:none}
 aside{background:var(--panel);overflow:auto;min-width:0;padding:12px;display:flex;flex-direction:column;gap:14px}
 aside.l{border-right:1px solid var(--line)} aside.r{border-left:1px solid var(--line)}
 h3{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
@@ -95,10 +99,11 @@ td.n{text-align:right;font-family:var(--font-num)}
 .hint{font-size:12px;color:var(--muted);line-height:1.45;margin:0}
 .keys{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px}
 .keys code{font-family:var(--font-num);font-size:11px;font-weight:600;color:var(--accent)}
-@media (max-width:1100px){main{grid-template-columns:200px 1fr 1fr}aside.r{grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}}
+@media (max-width:1100px){main{grid-template-columns:200px var(--mid)}aside.r{grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}}
 @media (max-width:760px){
   body{height:auto;min-height:100%}
   main{grid-template-columns:1fr;grid-auto-rows:auto}
+  .split{display:none}
   .view{height:360px;border-right:0;border-bottom:1px solid var(--line)}
   aside.l{border-right:0;border-bottom:1px solid var(--line)}
   #plan{cursor:crosshair}
@@ -287,7 +292,7 @@ td.n{text-align:right;font-family:var(--font-num)}
       <button class="btn" data-view="front">Frontal</button>
       <button class="btn" data-view="side">Lateral</button>
     </div>
-    <div class="vbtns"><button class="btn" id="fit2d">Enquadrar</button></div>
+    <div class="vbtns"><button class="btn" id="fit2d">Enquadrar</button><button class="btn ib" id="max2d" data-ic="maxi" data-tip="Só o desenho 2D (clique de novo para voltar às duas)"></button></div>
     <div class="planebar" id="planebar" hidden>
       <button class="btn ib" id="pl-prev" data-ic="prev" data-tip="Plano anterior · PgUp"></button>
       <select id="pl-sel" aria-label="Plano da vista"></select>
@@ -296,11 +301,12 @@ td.n{text-align:right;font-family:var(--font-num)}
     </div>
     <button id="vis-chip" hidden>Mostrar tudo</button>
   </section>
+  <div class="split" id="split" title="Arraste para mudar o tamanho · duplo clique: metade/metade"></div>
 
   <section class="view" id="v3dWrap">
     <div id="v3d" style="width:100%;height:100%"></div>
     <div class="tag">Vista 3D</div>
-    <div class="vbtns"><button class="btn" id="fit3d">Enquadrar</button></div>
+    <div class="vbtns"><button class="btn" id="fit3d">Enquadrar</button><button class="btn ib" id="max3d" data-ic="maxi" data-tip="Só a vista 3D (clique de novo para voltar às duas)"></button></div>
   </section>
 
   <aside class="r">
@@ -320,7 +326,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.26-3';
+const APP_VER='2026.11.26-4';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -1019,7 +1025,7 @@ function undo(){if(!hist.length){msg('Nada para desfazer.');return;}const e=hist
 function resize(){
   const r=$('planWrap').getBoundingClientRect(),d=devicePixelRatio||1;
   cv.width=r.width*d;cv.height=r.height*d;ctx.setTransform(d,0,0,d,0,0);draw();
-  const r3=$('v3dWrap').getBoundingClientRect();renderer.setSize(r3.width,r3.height);cam.aspect=r3.width/r3.height;cam.updateProjectionMatrix();
+  const r3=$('v3dWrap').getBoundingClientRect();if(r3.width>0&&r3.height>0){renderer.setSize(r3.width,r3.height);cam.aspect=r3.width/r3.height;cam.updateProjectionMatrix();}
 }
 const MX=()=>view.mx||1;
 const W2S=(x,y)=>[x*view.s*MX()+view.ox,y*view.s+view.oy];
@@ -2515,6 +2521,23 @@ async function openSettings(){
     const sh=$('cfg-shell');if(sh)sh.onclick=()=>{save();DESK.installShell();};},0);
   await p;
 }
+// ---- divisão 2D | 3D: arrastar para mudar o tamanho, ou deixar só uma das vistas ----
+let LAY={r:.5,mode:'both'};try{const o=JSON.parse(localStorage.getItem('ecocad-layout')||'null');if(o)LAY={r:Math.min(.85,Math.max(.15,+o.r||.5)),mode:['both','2d','3d'].includes(o.mode)?o.mode:'both'};}catch(e){}
+function applyLayout(){const m=document.querySelector('main');m.classList.toggle('only2d',LAY.mode==='2d');m.classList.toggle('only3d',LAY.mode==='3d');
+  m.style.setProperty('--mid',LAY.mode==='both'?`minmax(0,${LAY.r}fr) 6px minmax(0,${1-LAY.r}fr)`:'minmax(0,1fr)');
+  const set=(id,on)=>{const b=$(id);if(!b)return;b.dataset.ic=on?'mini':'maxi';b.innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true">${IC[b.dataset.ic]}</svg>`;b.title=on?'Voltar às duas vistas':b.dataset.tip;};
+  set('max2d',LAY.mode==='2d');set('max3d',LAY.mode==='3d');
+  try{localStorage.setItem('ecocad-layout',JSON.stringify(LAY));}catch(e){}
+  requestAnimationFrame(()=>{resize();if(LAY.mode!=='2d'&&typeof render3d==='function')render3d();});}
+function setLayout(mode){LAY.mode=LAY.mode===mode?'both':mode;applyLayout();}
+function bindLayout(){
+  $('max2d').onclick=()=>setLayout('2d');$('max3d').onclick=()=>setLayout('3d');
+  const sp=$('split');let drag=null;
+  sp.onpointerdown=e=>{e.preventDefault();sp.setPointerCapture(e.pointerId);sp.classList.add('drag');const a=$('planWrap').getBoundingClientRect(),b=$('v3dWrap').getBoundingClientRect();drag={x0:a.left,w:b.right-a.left-6};};
+  sp.onpointermove=e=>{if(!drag)return;LAY.r=Math.min(.85,Math.max(.15,(e.clientX-drag.x0)/drag.w));document.querySelector('main').style.setProperty('--mid',`minmax(0,${LAY.r}fr) 6px minmax(0,${1-LAY.r}fr)`);resize();};
+  sp.onpointerup=sp.onpointercancel=()=>{if(!drag)return;drag=null;sp.classList.remove('drag');applyLayout();};
+  sp.ondblclick=()=>{LAY.r=.5;applyLayout();};
+  applyLayout();}
 function toggleExp(on){const m=$('exp-menu');m.hidden=!on;if(on)setTimeout(()=>m.querySelector('button').focus(),0);}
 $('f-exp').onclick=e=>{e.stopPropagation();toggleExp($('exp-menu').hidden);};
 document.addEventListener('pointerdown',e=>{if(!$('exp-menu').hidden&&!e.target.closest('.menu'))toggleExp(false);});
@@ -2569,6 +2592,8 @@ const IC={
   grid:'<path d="M17 9v12M3 17h12" stroke-dasharray="4 2"/><circle cx="17" cy="5.5" r="3.2"/><circle cx="5.5" cy="7" r="3.2"/><path d="M5.5 10.2V17"/>',
   snap:'<rect x="7" y="7" width="10" height="10"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/><circle cx="12" cy="12" r="6.5"/>',
+  maxi:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  mini:'<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
   polar:'<path d="M4 20h16"/><path d="M4 20 18 6" stroke-dasharray="2 2.5"/><path d="M11 20a7 7 0 0 0-2-5"/>',
   prev:'<path d="M15 5l-7 7 7 7"/>',next:'<path d="M9 5l7 7-7 7"/>',
   undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
@@ -2578,7 +2603,7 @@ document.querySelectorAll('[data-ic]').forEach(b=>{b.setAttribute('aria-label',b
   b.innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true">${IC[b.dataset.ic]||''}</svg>`+(b.classList.contains('wide')?'<svg class="car" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5"/></svg>':'');});
 
 // ================= início =================
-bindPlaneBar();syncTrackBtns();renderCutTabs();
+bindPlaneBar();syncTrackBtns();renderCutTabs();bindLayout();
 $('pname').value=S.name||'';
 addEventListener('resize',resize);
 renderMats();resize();VIEWS.top.init=true;fit2d();changed();fit3d();
