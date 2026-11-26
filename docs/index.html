@@ -260,6 +260,7 @@ td.n{text-align:right;font-family:var(--font-num)}
       <code>EA</code><span>Emendas automáticas</span>
       <code>PP</code><span>Pranchas de produção (A4)</span>
       <code>MA</code><span>MATCHPROP</span>
+      <code>CONTRAV</code><span>Travamento em X entre montantes alinhados: clique o montante, depois a 1ª e a última tesoura de cada X e informe o comprimento da peça</span>
       <code>CORTE</code><span>Linha de corte na planta: escolhe a parte e o lado que a vista frontal/lateral mostra</span>
       <code>DI</code><span>DIST</span>
       <code>F3 / F8 / F10</code><span>Osnap / Orto / Polar (seta no botão: modos e ângulo)</span>
@@ -326,7 +327,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.26-5';
+const APP_VER='2026.11.26-6';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -547,7 +548,7 @@ const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim
 const selPieces=()=>[...sel].map(byId).filter(Boolean);
 const same=p=>p.view===VIEW;
 
-const ALIAS={corte:'section',section:'section',sec:'section',l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
+const ALIAS={ctv:'contrav',contrav:'contrav',contraventamento:'contrav',travamento:'contrav',corte:'section',section:'section',sec:'section',l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
   m:'move',move:'move',co:'copy',cp:'copy',copy:'copy',ro:'rotate',rotate:'rotate',mi:'mirror',mirror:'mirror',
   ar:'array',array:'array',o:'offset',offset:'offset',tr:'trim',trim:'trim',ex:'extend',extend:'extend',
   f:'fillet',fillet:'fillet',ma:'matchprop',matchprop:'matchprop',di:'dist',dist:'dist',
@@ -555,10 +556,10 @@ const ALIAS={corte:'section',section:'section',sec:'section',l:'line',line:'line
   imp:'import',import:'import',exp:'export',export:'export',save:'save',qsave:'save',open:'open',
   iso:'isolate',isolar:'isolate',oc:'hide',ocultar:'hide',hide:'hide',mt:'showall',mostrar:'showall',unhide:'showall',unisolate:'showall',pp:'prodsheet',prancha:'prodsheet',em:'splice',emenda:'splice',br:'splice',ea:'autosplice',emendas:'autosplice',j:'weld',join:'weld',sd:'weld',soldar:'weld',rec:'rect',rectang:'rect',rect:'rect',cn:'plate',conector:'plate',g:'group',group:'group',xl:'grid',xline:'grid',grade:'grid',sc:'scale',scale:'scale',rm:'refmove',refmove:'refmove',rc:'refcal',refcal:'refcal',
   pla:'v-top',planta:'v-top',fr:'v-front',frontal:'v-front',la:'v-side',lateral:'v-side'};
-const NAME={section:'CORTE',line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
+const NAME={contrav:'CONTRAV',section:'CORTE',line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
   offset:'OFFSET',trim:'TRIM',extend:'EXTEND',fillet:'FILLET',matchprop:'MATCHPROP',dist:'DIST',erase:'ERASE',fit:'ENCAIXE',scale:'SCALE',grid:'XLINE',group:'TESOURA MATRIZ',isolate:'ISOLAR',hide:'OCULTAR',plate:'CONECTOR',rect:'RECTANG',weld:'SOLDAR',splice:'EMENDA',autosplice:'EMENDAS AUTOMÁTICAS',refmove:'REFMOVE',refcal:'REFCAL'};
 const NEEDSEL=['move','copy','rotate','mirror','array','erase','scale','group','isolate','hide','autosplice'];
-const NUMSTEP=['p2','dest','angle','dist','count','calv','factor','rnew','cn2','rc2','em1'];
+const NUMSTEP=['cvL','p2','dest','angle','dist','count','calv','factor','rnew','cn2','rc2','em1'];
 const PICKSTEPS=['pick','a','b','src','dst','main','sec','wa','wb','em1'];
 
 // ================= vistas =================
@@ -615,6 +616,9 @@ function run(name){
   if(name==='post'&&VIEW!=='top'){msg('Pilar é lançado na Planta. Nas vistas, desenhe com L e uma peça linear.');return;}
   lastCmd=name;cmd={name,step:null};
   if(name==='line'||name==='pline'){const m0=mat(S.mat);if(m0.post||m0.plate){const m=S.mats.find(x=>!x.post&&!x.plate);S.mat=m.id;renderMats();}cmd.step='p1';cmd.pts=[];cmd.ids=[];}
+  else if(name==='contrav'){const m=mat(S.mat);if(m.post||m.plate||m.kind){msg('Escolha na biblioteca a madeira do travamento (tábua, sarrafo…) e rode CONTRAV de novo.',7000);cmd=null;refresh();return;}
+    if(VIEW==='top'){leaveCut();setView('front');renderCutTabs();cmd={name:'contrav'};}
+    cmd.step=VIEW==='front'?'cv0':'cv1';}
   else if(name==='section'){if(VIEW!=='top'){leaveCut();setView('top');renderCutTabs();}cmd.step='ct1';}
   else if(name==='slab'){
     if(VIEW!=='top'){msg('A laje por área é lançada na Planta, sobre as paredes.',6000);cmd=null;refresh();return;}
@@ -690,11 +694,12 @@ function enter(){
   else if(st==='em1'){if(!typed){finish(false);return;}const h=hover!=null&&byId(hover);if(!canSplice(h)){msg('Passe o mouse sobre a peça e digite a distância.');return;}
     const t=spliceTyped(h,mouse,v*10);if(t==null){msg('Distância fora da peça.');typed='';refresh();return;}push();splitAt(h,t,spliceConn);typed='';changed();msg('Emenda criada.',3000);return;}
   else if(st==='rc1'){finish(false);}
+  else if(st==='cvL'){const g=xGeom(cmd.A,cmd.B),L=v!=null&&v>0?v:g.Ldef;placeX(cmd.A,cmd.B,L);return;}
   else if(st==='count'){const n=Math.round(v??lastCount);if(n>=2){lastCount=n;cmd.count=n;cmd.step='base';}else msg('Informe 2 ou mais peças.');}
   else finish(false);
   typed='';refresh();
 }
-const LEN_STEPS=['p2','dest','dist','rnew','calv','em1'];
+const LEN_STEPS=['cvL','p2','dest','dist','rnew','calv','em1'];
 const typedVal=()=>{if(!typed)return null;const v=parseFloat(typed.replace(',','.'));if(isNaN(v))return null;return cmd&&LEN_STEPS.includes(cmd.step)?toMod(v):v;};
 
 // ---- geometria ----
@@ -810,6 +815,21 @@ function placeSlab(q){
   push();S.pieces.push({id:S.nid++,view:'top',mat:S.mat,poly:P,x1:Math.min(...xs),y1:Math.min(...ys),x2:Math.max(...xs),y2:Math.max(...ys),z,z2:z,rot:false});changed();
   msg(`Laje de ${(Math.abs(polyArea(P))/1e4).toLocaleString('pt-BR',{maximumFractionDigits:2})} m² até a face ${R.outer?'externa':'interna'} das paredes, na cota ${fmm(z)} mm (topo das paredes). A cota muda no painel da peça.`,8000);
 }
+// ---- CONTRAVENTAMENTO em X entre montantes alinhados de tesouras (vista Lateral) ----
+const isMontante=p=>p&&p.view==='front'&&!p.post&&!isPlate(p)&&!mat(p.mat).kind&&Math.abs(p.x2-p.x1)<=Math.abs(p.y2-p.y1)*.05&&Math.abs(p.y2-p.y1)>1;
+function pickMontante(wx,wy){if(VIEW!=='side')return null;let best=null,bd=6/view.s;
+  S.pieces.forEach(p=>{if(!isMontante(p)||!isOn(p))return;const d=distPoly(shape2(p),wx,wy);if(d<bd){bd=d;best=p;}});if(!best)return null;
+  const W=corners3(best),zs=W.map(w=>w[2]),dm=dims(best);return{p:best,yc:best.z,xm:(best.x1+best.x2)/2,wm:dm.w,tm:dm.t,zlo:Math.min(...zs),zhi:Math.max(...zs)};}
+function xRot(){const m=mat(S.mat);return m.h<m.b;} // peça deitada no montante: a espessura menor fica para fora do plano
+function xGeom(A,B){const m=mat(S.mat),q={view:'side',mat:S.mat,rot:xRot()},d=dims(q),mg=d.w*.6+2,zlo=Math.max(A.zlo,B.zlo)+mg,zhi=Math.min(A.zhi,B.zhi)-mg;if(zhi-zlo<2)return null;
+  const Lc=Math.hypot(B.yc-A.yc,zhi-zlo),Ldef=Math.ceil((Lc+Math.max(A.tm,B.tm)+10)/10)*10;return{zlo,zhi,Lc,Ldef,bw:d.w,bt:d.t};}
+function xPieces(A,B,L){const g=xGeom(A,B);if(!g)return[];const xm=(A.xm+B.xm)/2,wm=Math.max(A.wm,B.wm),out=[];
+  [[g.zlo,g.zhi,1],[g.zhi,g.zlo,-1]].forEach(([za,zb,sd])=>{const u1=A.yc,v1=-za,u2=B.yc,v2=-zb,mu=(u1+u2)/2,mv=(v1+v2)/2,l=Math.hypot(u2-u1,v2-v1)||1,du=(u2-u1)/l*L/2,dv=(v2-v1)/l*L/2;
+    out.push({view:'side',mat:S.mat,rot:xRot(),x1:mu-du,y1:mv-dv,x2:mu+du,y2:mv+dv,z:xm+sd*(wm/2+g.bt/2),z2:xm+sd*(wm/2+g.bt/2)});});
+  return out;}
+function placeX(A,B,L){const P=xPieces(A,B,L);if(!P.length){msg('Não foi possível montar o X.');return;}push();P.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
+  const n=Math.round(Math.abs(B.yc-A.yc)/1)||0;msg(`X criado: 2 peças de ${fmm(L)} mm, uma em cada face do montante. Clique o próximo par de montantes ou Enter para sair.`,7000);
+  cmd.A=cmd.B=null;cmd.step='cv1';sel.clear();typed='';refresh();}
 function closeChain(){
   if(!cmd.pts||cmd.pts.length<3){msg('Para fechar, desenhe pelo menos 2 segmentos.');return;}
   rebuildChain(true,true);const n=cmd.ids.length;finish(false);msg(`Contorno fechado com ${n} peças (${JUST_NAME[lineJust]}).`,5000);
@@ -1087,6 +1107,8 @@ function ghosts(){
   if(n==='scale'){const k=curScale();if(k){const f=sclFn(cmd.base,k);return list.filter(same).map(p=>tf(p,f));}}
   if(n==='offset'&&st==='side'){const t=byId(cmd.target);return t?[offP(t,mouse,lastOffset)]:[];}
   if((n==='line'||n==='pline')&&st==='p2'){const e=endPoint();return chainPieces([...cmd.pts,{x:e.x,y:e.y}],false,chainMiter()).slice(-2);}
+  if(n==='contrav'&&st==='cv2'){const B=pickMontante(mouse.x,mouse.y);if(B&&B.p.id!==cmd.A.p.id&&xGeom(cmd.A,B))return xPieces(cmd.A,B,xGeom(cmd.A,B).Ldef);return[];}
+  if(n==='contrav'&&st==='cvL'){const v=typedVal(),g=xGeom(cmd.A,cmd.B);return g?xPieces(cmd.A,cmd.B,v>0?v:g.Ldef):[];}
   if(n==='slab'&&st==='sl1'){const R=slabRegion({x:raw.x,y:raw.y});return R&&R.poly?[{view:'top',mat:S.mat,poly:R.poly,x1:0,y1:0,x2:0,y2:0,z:0,rot:false}]:[];}
   if(n==='plate'&&(st==='cn1'||st==='cn2')){const c=st==='cn2'?cmd.c:mouse;let a=cmd.ang||0;if(st==='cn2'){const v=typedVal(),q=orthoPt(c,mouse);a=v!=null?-v*Math.PI/180:(Math.hypot(q.x-c.x,q.y-c.y)>1e-6?Math.atan2(q.y-c.y,q.x-c.x):a);}
     const m=mat(S.plate),L=m.len/2;return[{view:VIEW,mat:m.id,x1:c.x-Math.cos(a)*L,y1:c.y-Math.sin(a)*L,x2:c.x+Math.cos(a)*L,y2:c.y+Math.sin(a)*L,z:0,rot:false}];}
@@ -1331,6 +1353,13 @@ cv.addEventListener('pointerdown',e=>{
   if(st==='p1'){cmd.start=p;cmd.pts=[{x:p.x,y:p.y}];cmd.ids=[];cmd.step='p2';}
   else if(st==='p2')addLine(endPoint());
   else if(st==='sl1')placeSlab({x:raw.x,y:raw.y});
+  else if(st==='cv0'){const h=hit(wx,wy);if(!h||!isMontante(h)){msg('Clique num MONTANTE (peça vertical) da tesoura.');return;}
+    const c=cmd,xm=(h.x1+h.x2)/2;leaveCut();setView('side');renderCutTabs();cmd=c;cmd.step='cv1';setPlane(Math.round(xm*10),true);fit2d();refresh();
+    msg(`Lateral no plano do montante (X = ${fmm(xm)} mm). Clique o montante da primeira e da última tesoura de cada X.`,7000);}
+  else if(st==='cv1'){const A=pickMontante(wx,wy);if(!A){msg('Clique no montante de uma tesoura (o retângulo vertical).');return;}cmd.A=A;sel.clear();sel.add(A.p.id);cmd.step='cv2';}
+  else if(st==='cv2'){const B=pickMontante(wx,wy);if(!B||B.p.id===cmd.A.p.id){msg('Clique no montante de OUTRA tesoura.');return;}
+    if(Math.abs(B.xm-cmd.A.xm)>Math.max(cmd.A.wm,B.wm)){msg('Esse montante não está alinhado com o primeiro (X diferente na planta).',6000);return;}
+    const g=xGeom(cmd.A,B);if(!g){msg('Os montantes são curtos demais para o X com essa madeira.',6000);return;}cmd.B=B;cmd.step='cvL';typed='';sel.add(B.p.id);}
   else if(st==='ct1'){cmd.a=p;cmd.step='ct2';}
   else if(st==='ct2'){const hz=Math.abs(p.x-cmd.a.x)>=Math.abs(p.y-cmd.a.y),b=hz?{x:p.x,y:cmd.a.y}:{x:cmd.a.x,y:p.y};if(Math.hypot(b.x-cmd.a.x,b.y-cmd.a.y)<1){msg('Arraste a linha de corte.');return;}cmd.b=b;cmd.step='ct3';}
   else if(st==='ct3'){const c=makeCut(cmd.a,cmd.b,{x:raw.x,y:raw.y});(S.cuts=S.cuts||[]).push(c);save();finish(false);renderCutTabs();draw();
@@ -1448,6 +1477,10 @@ function prompt(){
   const P={
     p1:`${n} ${m.name} ${m.kind?'esp. '+fmm(m.h):fmm(m.b)+'×'+fmm(m.h)} mm${m.kind==='wall'&&VIEW==='top'?' · altura '+fmm(wallH(m))+' [A]':''} · [J = alinhamento: ${JUST_NAME[lineJust]}] · Specify first point:`,
     p2:m.len?`${n} · Peça pronta de ${fmm(m.len)} mm — clique a direção · Enter encerra:`:`${n} · Specify next point or [comprimento + Enter] · [C = fechar, U = desfaz ponto, J = ${JUST_NAME[lineJust]}${m.kind==='wall'&&VIEW==='top'?', A = altura '+fmm(wallH(m)):''}]:`,
+    cv0:`${n} · Clique no MONTANTE que vai receber o travamento:`,
+    cv1:`${n} ${m.name} ${fmm(m.b)}×${fmm(m.h)} · Clique no montante da PRIMEIRA tesoura do X · Enter encerra:`,
+    cv2:`${n} · Clique no montante da ÚLTIMA tesoura do X (pode pular tesouras):`,
+    cvL:`${n} · Comprimento de cada peça do X (mm) [Enter = ${cmd&&cmd.A&&cmd.B&&xGeom(cmd.A,cmd.B)?fmm(xGeom(cmd.A,cmd.B).Ldef):''}]:`,
     ct1:`${n} · Primeiro ponto da linha de corte (horizontal → vista frontal, vertical → lateral):`,
     ct2:`${n} · Segundo ponto da linha de corte:`,
     ct3:`${n} · Clique do lado para onde o corte deve olhar:`,
