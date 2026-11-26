@@ -327,7 +327,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.26-9';
+const APP_VER='2026.11.26-10';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -857,7 +857,29 @@ function placeX(A,B,L){const g=xGeom(A,B,L);if(!g||g.err){msg(g?g.err:'Não foi 
   L=Math.min(L||g.Ldef,g.Lcap);const P=xPieces(A,B,L);if(!P.length){msg('Não foi possível montar o X.');return;}push();P.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
   const ang=Math.round(Math.atan2(g.zhi-g.zlo,Math.abs(B.yc-A.yc))*180/Math.PI);
   msg(`X criado: 2 peças de ${fmm(L)} mm (inclinação ${ang}°), uma em cada face do montante, de ${fmm(g.zlo)} a ${fmm(g.zhi)} mm de altura. Próximo par de montantes ou Enter para sair.`,8000);
-  cmd.A=cmd.B=null;cmd._xg=null;cmd.step='cv1';sel.clear();typed='';refresh();}
+  cmd.lastX={A,B,L};cmd.A=cmd.B=null;cmd._xg=null;cmd.step='cv1';sel.clear();typed='';refresh();}
+// ---- repetir o X ao longo da linha de montantes (vãos com X / vãos sem X) ----
+function montLine(A){const by=new Map();
+  S.pieces.forEach(p=>{if(!isMontante(p))return;const xm=(p.x1+p.x2)/2;if(Math.abs(xm-A.xm)>A.wm)return;const k=Math.round(p.z*10);const o=by.get(k);if(!o||Math.abs(xm-A.xm)<Math.abs((o.x1+o.x2)/2-A.xm))by.set(k,p);});
+  return[...by.values()].sort((a,b)=>a.z-b.z).map(p=>{const W=corners3(p),zs=W.map(w=>w[2]),dm=dims(p);return{p,yc:p.z,xm:(p.x1+p.x2)/2,wm:dm.w,tm:dm.t,zlo:Math.min(...zs),zhi:Math.max(...zs)};});}
+async function repeatX(){const X=cmd&&cmd.lastX;if(!X){msg('Crie um X primeiro.');return;}
+  const T=montLine(X.A),ia0=T.findIndex(t=>t.p.id===X.A.p.id),ib0=T.findIndex(t=>t.p.id===X.B.p.id);if(ia0<0||ib0<0){msg('Não achei a linha de montantes deste X.');return;}
+  const ia=Math.min(ia0,ib0),ib=Math.max(ia0,ib0),k=ib-ia;
+  const f=await ask('Repetir o X',`<p>Linha de montantes com <b>${T.length}</b> tesouras. O X criado vai da ${ia+1}ª à ${ib+1}ª (pega <b>${k}</b> vão${k>1?'s':''}).</p>
+    <label class="drow"><span>Vãos com X</span><input name="k" type="number" min="1" step="1" value="${k}"></label>
+    <label class="drow"><span>Vãos sem X entre um X e o próximo</span><input name="g" type="number" min="0" step="1" value="0"></label>
+    <label class="drow"><span>Comprimento da peça (mm)</span><input name="L" type="number" min="100" max="${fmm(CV_LMAX)}" step="10" value="${fmm(X.L)}"></label>
+    <label class="drow"><span>Sentido</span><select name="d"><option value="2">Nos dois sentidos</option><option value="1">Só para frente</option><option value="-1">Só para trás</option></select></label>
+    <p class="hint">Ex.: "2 tesouras sim e 2 não" = 2 vãos com X e 2 vãos sem X. Para a segunda linha de montantes ficar alternada, comece o primeiro X dela deslocado e repita com o mesmo padrão.</p>`,'Repetir');
+  if(!f)return;const kk=Math.max(1,Math.round(+f.k||k)),g=Math.max(0,Math.round(+f.g||0)),L=Math.min(CV_LMAX,toMod(parseFloat(String(f.L).replace(',','.'))||fmm(X.L))),d=+f.d,step=kk+g;
+  const pos=[];if(d!==-1)for(let a=ia+step;a+kk<=T.length-1;a+=step)pos.push(a);if(d!==1)for(let a=ia-step;a>=0;a-=step)pos.push(a);
+  if(!pos.length){msg('Não há tesouras suficientes para repetir com esse padrão.',6000);return;}
+  push();let ok=0;const fails=[];
+  pos.sort((a,b)=>a-b).forEach(a=>{const A=T[a],B=T[a+kk];cmd._xg=null;const gm=xGeom(A,B,L);if(!gm||gm.err){fails.push(`${a+1}ª–${a+kk+1}ª`);return;}
+    xPieces(A,B,L).forEach(q=>S.pieces.push({...q,id:S.nid++}));ok++;});
+  if(!ok){hist.pop();msg('Nenhum X coube nas posições ('+fails.join(', ')+').',8000);return;}
+  changed();msg(`${ok} X repetido${ok>1?'s':''} (${kk} vão${kk>1?'s':''} com X, ${g} sem).${fails.length?' Não couberam: '+fails.join(', ')+'.':''}`,9000);
+}
 function closeChain(){
   if(!cmd.pts||cmd.pts.length<3){msg('Para fechar, desenhe pelo menos 2 segmentos.');return;}
   rebuildChain(true,true);const n=cmd.ids.length;finish(false);msg(`Contorno fechado com ${n} peças (${JUST_NAME[lineJust]}).`,5000);
@@ -1477,6 +1499,7 @@ window.addEventListener('keydown',e=>{
   if(cmd&&cmd.step==='cn2'&&!cmdBuf&&!typed&&e.key.toLowerCase()==='a'){const h=cmd.host;placePlate(Math.atan2(h.y2-h.y1,h.x2-h.x1));return;}
   if(cmd&&cmd.name==='grid'&&(cmd.step==='g1'||cmd.step==='g2')&&!cmdBuf&&!typed&&/^[hv]$/i.test(e.key)){const k=e.key.toLowerCase();cmd.gmode=cmd.gmode===k?null:k;cmd.step='g1';refresh();return;}
   if(cmd&&cmd.step==='factor'&&!cmdBuf&&!typed&&e.key.toLowerCase()==='r'){cmd.step='r1';refresh();return;}
+  if(cmd&&cmd.name==='contrav'&&cmd.step==='cv1'&&cmd.lastX&&!cmdBuf&&!typed&&e.key.toLowerCase()==='r'){e.preventDefault();repeatX();return;}
   if(cmd&&(cmd.name==='line'||cmd.name==='pline')&&(cmd.step==='p1'||cmd.step==='p2')&&!cmdBuf&&!typed){const k=e.key.toLowerCase();
     if(k==='j'){lineJust={c:'e',e:'i',i:'c'}[lineJust];if(cmd.pts&&cmd.pts.length>1)rebuildChain(false);msg('Alinhamento: '+JUST_NAME[lineJust]+'.');refresh();return;}
     if(k==='c'&&cmd.step==='p2'){closeChain();return;}
@@ -1506,7 +1529,7 @@ function prompt(){
     p1:`${n} ${m.name} ${m.kind?'esp. '+fmm(m.h):fmm(m.b)+'×'+fmm(m.h)} mm${m.kind==='wall'&&VIEW==='top'?' · altura '+fmm(wallH(m))+' [A]':''} · [J = alinhamento: ${JUST_NAME[lineJust]}] · Specify first point:`,
     p2:m.len?`${n} · Peça pronta de ${fmm(m.len)} mm — clique a direção · Enter encerra:`:`${n} · Specify next point or [comprimento + Enter] · [C = fechar, U = desfaz ponto, J = ${JUST_NAME[lineJust]}${m.kind==='wall'&&VIEW==='top'?', A = altura '+fmm(wallH(m)):''}]:`,
     cv0:`${n} · Clique no MONTANTE que vai receber o travamento:`,
-    cv1:`${n} ${m.name} ${fmm(m.b)}×${fmm(m.h)} · Clique no montante da PRIMEIRA tesoura do X · Enter encerra:`,
+    cv1:`${n} ${m.name} ${fmm(m.b)}×${fmm(m.h)} · Clique no montante da PRIMEIRA tesoura do X${cmd&&cmd.lastX?' · [R = repetir o último X ao longo da linha]':''} · Enter encerra:`,
     cv2:`${n} · Clique no montante da ÚLTIMA tesoura do X (pode pular tesouras):`,
     cvL:`${n} · Comprimento de cada peça do X (mm, máx. ${fmm(CV_LMAX)}) [Enter = ${(()=>{const g=cmd&&cmd.A&&cmd.B&&xGeom(cmd.A,cmd.B);return g&&!g.err?fmm(g.Ldef):''})()}]:`,
     ct1:`${n} · Primeiro ponto da linha de corte (horizontal → vista frontal, vertical → lateral):`,
