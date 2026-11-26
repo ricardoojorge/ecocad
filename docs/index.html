@@ -326,7 +326,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.26-4';
+const APP_VER='2026.11.26-5';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -707,7 +707,8 @@ function orthoPt(b,p){if(mouse.snapped)return{x:p.x,y:p.y};
   const pa=polarAt(b,p);return pa?pa.pt:{x:p.x,y:p.y};}
 function towards(b,p,L){const dx=p.x-b.x,dy=p.y-b.y;let ux=dx,uy=dy;if(ortho){if(Math.abs(dx)>=Math.abs(dy))uy=0;else ux=0;}else{const pa=polarAt(b,p);if(pa){ux=pa.ux;uy=pa.uy;}}const l=Math.hypot(ux,uy);return l?{x:b.x+ux/l*L,y:b.y+uy/l*L}:{x:b.x+L,y:b.y};}
 function tf(p,f){const q={...p};[q.x1,q.y1]=f(p.x1,p.y1);[q.x2,q.y2]=f(p.x2,p.y2);if(p.poly)q.poly=p.poly.map(([x,y])=>f(x,y));
-  ['cut1','cut2'].forEach(k=>{const c=p[k];if(c){const[a,b]=f(c.ax,c.ay),[d,e]=f(c.bx,c.by);q[k]={ax:a,ay:b,bx:d,by:e};}});return q;}
+  const tc=c=>{const[a,b]=f(c.ax,c.ay),[d,e]=f(c.bx,c.by);return{ax:a,ay:b,bx:d,by:e};};
+  ['cut1','cut2'].forEach(k=>{if(p[k])q[k]=tc(p[k]);});['xc1','xc2'].forEach(k=>{if(p[k])q[k]=p[k].map(tc);});return q;}
 function rotP(p,b,a){const c=Math.cos(a),s=Math.sin(a);const q=tf(p,(x,y)=>[b.x+(x-b.x)*c-(y-b.y)*s,b.y+(x-b.x)*s+(y-b.y)*c]);if(p.post&&Math.abs(s)>.7)q.rot=!p.rot;return q;}
 function mirP(p,a,b){const dx=b.x-a.x,dy=b.y-a.y,l2=dx*dx+dy*dy||1;return tf(p,(x,y)=>{const t=((x-a.x)*dx+(y-a.y)*dy)/l2,px=a.x+t*dx,py=a.y+t*dy;return[2*px-x,2*py-y];});}
 function offP(p,c,d){const dx=p.x2-p.x1,dy=p.y2-p.y1,L=Math.hypot(dx,dy)||1,nx=-dy/L,ny=dx/L,s=Math.sign((c.x-p.x1)*nx+(c.y-p.y1)*ny)||1;return tf(p,(x,y)=>[x+nx*d*s,y+ny*d*s]);}
@@ -715,7 +716,7 @@ function segInt(ax,ay,bx,by,cx,cy,dx,dy){const rx=bx-ax,ry=by-ay,sx=dx-cx,sy=dy-
   return{t:((cx-ax)*sy-(cy-ay)*sx)/den,u:((cx-ax)*ry-(cy-ay)*rx)/den};}
 function paramOf(p,pt){const dx=p.x2-p.x1,dy=p.y2-p.y1;return((pt.x-p.x1)*dx+(pt.y-p.y1)*dy)/((dx*dx+dy*dy)||1);}
 function at(p,t){return{x:p.x1+(p.x2-p.x1)*t,y:p.y1+(p.y2-p.y1)*t,z:p.z+(zEnd(p)-p.z)*t};}
-function sub(p,a,b){const A=at(p,a),B=at(p,b),q={...p,x1:A.x,y1:A.y,z:A.z,x2:B.x,y2:B.y,z2:B.z};if(Math.abs(a)>1e-6)q.cut1=undefined;if(Math.abs(b-1)>1e-6)q.cut2=undefined;return q;}
+function sub(p,a,b){const A=at(p,a),B=at(p,b),q={...p,x1:A.x,y1:A.y,z:A.z,x2:B.x,y2:B.y,z2:B.z};if(Math.abs(a)>1e-6){q.cut1=undefined;q.xc1=undefined;}if(Math.abs(b-1)>1e-6){q.cut2=undefined;q.xc2=undefined;}return q;}
 function cuts(p){const ts=[],Rf=S.refs&&S.refs[p.view];
   if(Rf){Rf.grids.forEach(g=>{const r=segInt(p.x1,p.y1,p.x2,p.y2,g[0],g[1],g[2],g[3]);if(r)ts.push(r.t);});
     if(Rf.lines.length<60000)Rf.lines.forEach(l=>{const r=segInt(p.x1,p.y1,p.x2,p.y2,l[0],l[1],l[2],l[3]);if(r&&r.u>=-1e-6&&r.u<=1+1e-6)ts.push(r.t);});}
@@ -861,8 +862,8 @@ function lineX(l1,l2){const r=segInt(l1.ax,l1.ay,l1.bx,l1.by,l2.ax,l2.ay,l2.bx,l
 // leva a ponta "near" da peça até a linha C (nas duas faces) e corta nela
 function endToLine(p,end2,C){
   const ts=[1,-1].map(sg=>{const q=lineX(faceLine(p,sg),C);return q?paramOf(p,q):null;}).filter(t=>t!=null);if(ts.length<2)return false;
-  if(end2){const t=Math.max(...ts);if(t<=1e-3)return false;Object.assign(p,sub(p,0,t));p.cut2=C;}
-  else{const t=Math.min(...ts);if(t>=1-1e-3)return false;Object.assign(p,sub(p,t,1));p.cut1=C;}
+  if(end2){const t=Math.max(...ts);if(t<=1e-3)return false;Object.assign(p,sub(p,0,t));p.cut2=C;p.xc2=undefined;}
+  else{const t=Math.min(...ts);if(t>=1-1e-3)return false;Object.assign(p,sub(p,t,1));p.cut1=C;p.xc1=undefined;}
   return true;}
 function cornerJoin(a,b,pa,pb){
   if(a.post||b.post||a.id===b.id||isPlate(a)||isPlate(b)){msg('Escolha duas peças lineares diferentes.');return false;}
@@ -893,7 +894,7 @@ function mergeAligned(a,b){
   if(Math.abs(a.z-b.z)>.1||Math.abs(zEnd(a)-zEnd(b))>.1&&a.view==='top')return'As peças estão em cotas diferentes.';
   const ends=[{t:0,c:a.cut1},{t:1,c:a.cut2},{t:paramOf(a,{x:b.x1,y:b.y1}),c:b.cut1},{t:paramOf(a,{x:b.x2,y:b.y2}),c:b.cut2}];
   const lo=ends.reduce((m,e)=>e.t<m.t?e:m),hi=ends.reduce((m,e)=>e.t>m.t?e:m);
-  push();const cut1=lo.c,cut2=hi.c;Object.assign(a,sub(a,lo.t,hi.t));a.cut1=cut1;a.cut2=cut2;S.pieces=S.pieces.filter(p=>p.id!==b.id);return true;
+  push();const cut1=lo.c,cut2=hi.c;Object.assign(a,sub(a,lo.t,hi.t));a.cut1=cut1;a.cut2=cut2;a.xc1=a.xc2=undefined;S.pieces=S.pieces.filter(p=>p.id!==b.id);return true;
 }
 function weldAB(a,b,pa,pb){
   if(a.id===b.id||a.post||b.post||isPlate(a)||isPlate(b)){msg('Escolha duas peças lineares diferentes.');return false;}
@@ -931,8 +932,12 @@ function fitTo(P,s,click){
   const ts=[1,-1].map(k=>{const r=segInt(s.x1+snx*k,s.y1+sny*k,s.x2+snx*k,s.y2+sny*k,near.a[0],near.a[1],near.b[0],near.b[1]);return r?r.t:null;}).filter(t=>t!=null);
   if(ts.length<2){msg('Não foi possível calcular o corte.');return false;}
   const line={ax:near.a[0],ay:near.a[1],bx:near.b[0],by:near.b[1]};
-  if(end2){const t=Math.max(...ts);if(t<=1e-3){msg('Corte fora da peça.');return false;}Object.assign(s,sub(s,0,t));s.cut2=line;}
-  else{const t=Math.min(...ts);if(t>=1-1e-3){msg('Corte fora da peça.');return false;}Object.assign(s,sub(s,t,1));s.cut1=line;}
+  // a ponta já encaixada em outra peça guarda os dois cortes (ex.: diagonal no montante e no banzo); mesma direção = substitui
+  const key=end2?'cut2':'cut1',xk=end2?'xc2':'xc1',par=(c,l)=>{const u=[c.bx-c.ax,c.by-c.ay],v=[l.bx-l.ax,l.by-l.ay];return Math.abs(u[0]*v[1]-u[1]*v[0])<=Math.hypot(...u)*Math.hypot(...v)*.02;};
+  const keep=[s[key],...(s[xk]||[])].filter(Boolean).filter(c=>!par(c,line)).slice(0,2);
+  if(end2){let t=Math.max(...ts);if(t<=1e-3){msg('Corte fora da peça.');return false;}if(keep.length)t=Math.max(t,1);Object.assign(s,sub(s,0,t));}
+  else{let t=Math.min(...ts);if(t>=1-1e-3){msg('Corte fora da peça.');return false;}if(keep.length)t=Math.min(t,0);Object.assign(s,sub(s,t,1));}
+  s[key]=line;s[xk]=keep.length?keep:undefined;
   return true;
 }
 
@@ -1048,7 +1053,8 @@ function footprint(p){
   if(p.post){const hb=(p.rot?m.h:m.b)/2,hh=(p.rot?m.b:m.h)/2;return[[p.x1-hb,p.y1-hh],[p.x1+hb,p.y1-hh],[p.x1+hb,p.y1+hh],[p.x1-hb,p.y1+hh]];}
   const w=dims(p).w/2,dx=p.x2-p.x1,dy=p.y2-p.y1,L=Math.hypot(dx,dy)||1,nx=-dy/L*w,ny=dx/L*w;
   let r=[[p.x1+nx,p.y1+ny],[p.x2+nx,p.y2+ny],[p.x2-nx,p.y2-ny],[p.x1-nx,p.y1-ny]];
-  if(p.cut1)r=clipPoly(r,p.cut1,[p.x2,p.y2]);if(p.cut2)r=clipPoly(r,p.cut2,[p.x1,p.y1]);return r;
+  if(p.cut1)r=clipPoly(r,p.cut1,[p.x2,p.y2]);if(p.cut2)r=clipPoly(r,p.cut2,[p.x1,p.y1]);
+  (p.xc1||[]).forEach(c=>{r=clipPoly(r,c,[p.x2,p.y2]);});(p.xc2||[]).forEach(c=>{r=clipPoly(r,c,[p.x1,p.y1]);});return r;
 }
 function poly(pts){ctx.beginPath();pts.forEach((q,i)=>{const[s,t]=W2S(q[0],q[1]);i?ctx.lineTo(s,t):ctx.moveTo(s,t);});ctx.closePath();}
 // ---- RECTANG: 4 peças do material atual ----
@@ -1563,7 +1569,7 @@ function props(){
   if($('p-bw'))$('p-bw').onchange=e=>{const v=parseFloat(e.target.value);if(!(v>0))return;push();p.bw=toMod(v);changed();};
   if($('p-goto'))$('p-goto').onclick=()=>openPlaneOf(p);
   $('p-iso').onclick=()=>run('isolate');$('p-hide').onclick=()=>run('hide');
-  if($('p-uncut'))$('p-uncut').onclick=()=>{push();p.cut1=undefined;p.cut2=undefined;changed();};
+  if($('p-uncut'))$('p-uncut').onclick=()=>{push();p.cut1=p.cut2=p.xc1=p.xc2=undefined;changed();};
   groupUI(box,list);
   $('p-del').onclick=()=>run('erase');
 }
@@ -1691,7 +1697,7 @@ function mesh(p){
     for(let i=0;i<n;i++){const j=(i+1)%n;tri(Bv[i],Tv[j],Bv[j]);tri(Bv[i],Tv[i],Tv[j]);}
     mt.side=THREE.DoubleSide;geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));geo.computeVertexNormals();obj=new THREE.Mesh(geo,mt);
   }
-  else if(p.cut1||p.cut2){
+  else if(p.cut1||p.cut2||p.xc1||p.xc2){
     const fp=footprint(p);let ar=0;for(let i=0;i<fp.length;i++){const A=fp[i],B=fp[(i+1)%fp.length];ar+=A[0]*B[1]-B[0]*A[1];}if(ar<0)fp.reverse();
     const dz=zEnd(q)-q.z,Lp=Math.hypot(p.x2-p.x1,p.y2-p.y1)||1,hv=t*Math.hypot(Lp,dz)/Lp,zb=c=>q.z+dz*paramOf(p,{x:c[0],y:c[1]});
     const Bv=fp.map(c=>[c[0],zb(c),c[1]]),Tv=fp.map(c=>[c[0],zb(c)+hv,c[1]]),pos=[],tri=(a,b2,c)=>pos.push(...a,...b2,...c),n=fp.length;
