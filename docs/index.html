@@ -332,7 +332,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-7';
+const APP_VER='2026.11.27-8';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -894,7 +894,8 @@ async function askRoof(h){const RL=roofLine(h),deg=RL.ang*180/Math.PI,c=Object.a
   const f=await ask('Telhas e terças',`<p>Água com <b>${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°</b> de inclinação, banzo de ${fmm(RL.L)} mm. ${rAuto?'':'<b>Inclinação abaixo de 5°: abaixo do mínimo da telha ondulada.</b>'}</p>
     <label class="drow"><span>Telha</span><select name="esp"><option value="6" ${c.esp==6?'selected':''}>Ondulada 6 mm (vão máx. 1.690)</option><option value="8" ${c.esp==8?'selected':''}>Ondulada 8 mm (vão máx. 1.990)</option></select></label>
     <label class="drow"><span>Largura útil / total (mm)</span><span><input name="util" type="number" step="5" value="${fmm(c.util)}" style="width:70px"> / <input name="total" type="number" step="5" value="${fmm(c.total)}" style="width:70px"></span></label>
-    <label class="drow"><span>Comprimentos de telha (mm)</span><input name="lens" value="${esc(c.lens)}"></label>
+    <label class="drow"><span>Fiadas (mm, da calha para cima) — vazio = automático</span><input name="fia" placeholder="ex.: 2440, 2440, 1830" value="${esc(c.fia||'')}"></label>
+    <label class="drow"><span>Comprimentos de telha (automático, mm)</span><input name="lens" value="${esc(c.lens)}"></label>
     <label class="drow"><span>Recobrimento longitudinal (mm)</span><input name="rec" type="number" step="10" value="${fmm(c.rec||rAuto||25)}"></label>
     <label class="drow"><span>Calha: da ponta baixa do banzo até a 1ª terça (mm, na horizontal)</span><input name="cal" type="number" step="10" value="${fmm(c.cal)}"></label>
     <label class="drow"><span>Ponta alta: do fim do banzo até a última terça (mm)</span><input name="top" type="number" step="10" value="${fmm(c.top)}"></label>
@@ -904,7 +905,7 @@ async function askRoof(h){const RL=roofLine(h),deg=RL.ang*180/Math.PI,c=Object.a
     <label class="drow"><span>Comprimento máximo da terça (mm)</span><input name="lmax" type="number" step="100" value="${fmm(c.lmax)}"></label>
     <p class="hint">Recobrimento sugerido pela inclinação (catálogo Brasilit): 140 mm acima de 15°, 200 mm de 10° a 15°, 250 mm de 5° a 10°. Rodar de novo na mesma água refaz telhas e terças.</p>`,'Paginar');
   if(!f)return;const num=k=>toMod(parseFloat(String(f[k]).replace(',','.'))||0);
-  const cfg={esp:+f.esp,util:num('util'),total:num('total'),lens:String(f.lens),rec:num('rec'),cal:num('cal'),top:num('top'),over:num('over'),lat:num('lat'),mat:f.mat,lmax:num('lmax')||250};
+  const cfg={esp:+f.esp,util:num('util'),total:num('total'),fia:String(f.fia||'').trim(),lens:String(f.lens),rec:num('rec'),cal:num('cal'),top:num('top'),over:num('over'),lat:num('lat'),mat:f.mat,lmax:num('lmax')||250};
   S.roofCfg={...cfg,rec:cfg.rec===(rAuto||25)?0:cfg.rec};makeRoof(h,RL,cfg);}
 // faixa do banzo superior de cada tesoura que fica no mesmo plano da água clicada (s = posição ao longo da rampa)
 function chordRanges(RL){const byY=new Map(),rx=RL.e[0],ry=-RL.e[1];
@@ -916,32 +917,43 @@ function chordRanges(RL){const byY=new Map(),rx=RL.e[0],ry=-RL.e[1];
 function makeRoof(h,RL,c){
   const tp=S.mats.find(m=>m.id===c.mat);if(!tp){msg('Escolha a madeira da terça.');return;}
   const rot=tp.b>tp.h,pw=Math.max(tp.b,tp.h),pt=Math.min(tp.b,tp.h),ex=Math.abs(RL.e[0])||1e-6,vmax=c.esp==8?199:169,r=c.rec||14;
-  const lens=c.lens.split(/[;,\s]+/).map(v=>toMod(parseFloat(v.replace(',','.')))).filter(v=>v>20).sort((a,b)=>a-b);if(!lens.length){msg('Informe os comprimentos de telha.');return;}
+  const lens=c.lens.split(/[;,\s]+/).map(v=>toMod(parseFloat(v.replace(',','.')))).filter(v=>v>20).sort((a,b)=>a-b);
+  const manual=(c.fia||'').split(/[;,\s]+/).map(v=>toMod(parseFloat(v.replace(',','.')))).filter(v=>v>20),warn=[];
+  if(!manual.length&&!lens.length){msg('Informe os comprimentos de telha.');return;}
   const T=chordRanges(RL);if(!T.length){msg('Não achei tesouras com o banzo nesse plano.',6000);return;}
   const gaps=T.slice(1).map((t,i)=>t.y-T[i].y).sort((a,b)=>a-b),sp=gaps.length?gaps[Math.floor(gaps.length/2)]:120,adj=(a,b)=>b.y-a.y<=sp*1.6;
   // regiões: tesouras vizinhas com o mesmo trecho de banzo (telhado em L, tesouras de tamanhos diferentes…)
   const regs=[];T.forEach((t,i)=>{const R=regs[regs.length-1];if(R&&adj(T[i-1],t)&&Math.abs(R.lo-t.lo)<1&&Math.abs(R.hi-t.hi)<1)R.ts.push(t);else regs.push({lo:t.lo,hi:t.hi,ts:[t]});});
-  const tm=tileMat(c.esp),P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off],out=[],tilt=Math.atan2(-RL.n[0],RL.n[1]),supAll=[],rep_=[],off=pw+tm.h/2;
-  for(let ri=0;ri<regs.length;ri++){const G=regs[ri],f0=G.ts[0],f1=G.ts[G.ts.length-1],pv=regs[ri-1],nx=regs[ri+1];
-    const sP0=G.lo+c.cal/ex+pt/2,sPn=G.hi-c.top/ex-pt/2;if(sPn-sP0<10){rep_.push('trecho curto ignorado');continue;}
-    const s0=sP0-pt/2-c.over,s1=sPn+pt/2+c.over,R=s1-s0,F=bestFiadas(R,lens,r);if(!F){rep_.push('sem combinação de telhas');continue;}
-    const n=F.t.length,rEff=n>1?r+F.ex/(n-1):r,cut=n===1?F.ex:0,tiles=[];let a=s0;F.t.forEach((L,i)=>{const len=i===0&&cut?L-cut:L;tiles.push([a,a+len]);a=a+len-rEff;});
-    let sup=[sP0];for(let i=0;i+1<tiles.length;i++)sup.push((tiles[i+1][0]+tiles[i][1])/2);sup.push(sPn);
-    for(let i=0;i<sup.length;i++){supAll.push(sup[i]);if(i+1<sup.length){const g=sup[i+1]-sup[i],k=Math.ceil(g/vmax-1e-6)-1;for(let j=1;j<=k;j++)supAll.push(sup[i]+g*j/(k+1));}}
+  regs.forEach(G=>G.id=Math.round(G.ts[0].y)+'|'+Math.round(G.lo)+'|'+Math.round(G.hi));
+  // manual: só a região da tesoura clicada (cada região com as suas fiadas)
+  const mine=regs.find(G=>G.ts.some(t=>Math.abs(t.y-h.z)<.6)),work=manual.length?(mine?[mine]:[]):regs;if(!work.length){msg('A tesoura clicada não está nesse plano.',6000);return;}
+  const tm=tileMat(c.esp),P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off],out=[],tilt=Math.atan2(-RL.n[0],RL.n[1]),rep_=[],off=pw+tm.h/2;let nT=0,nL=0;
+  work.forEach(G=>{const ri=regs.indexOf(G),f0=G.ts[0],f1=G.ts[G.ts.length-1],pv=regs[ri-1],nx=regs[ri+1];
+    const sP0=G.lo+c.cal/ex+pt/2;let sPn=G.hi-c.top/ex-pt/2;if(sPn-sP0<10){rep_.push('trecho curto ignorado');return;}
+    const s0=sP0-pt/2-c.over;let F;
+    if(manual.length){const cov=manual.reduce((a,v)=>a+v,0)-(manual.length-1)*r;F={t:manual.slice(),ex:0};sPn=s0+cov-c.over-pt/2;
+      const pas=sPn+pt/2-G.hi;if(pas>.5)warn.push(`as fiadas passam ${fmm(pas)} mm da ponta alta do banzo`);else if(pas<-(c.top/ex+.5))warn.push(`as fiadas param ${fmm(-pas)} mm antes da ponta alta do banzo`);}
+    else{F=bestFiadas(sPn+pt/2+c.over-s0,lens,r);if(!F){rep_.push('sem combinação de telhas');return;}}
+    const n=F.t.length,rEff=n>1&&!manual.length?r+F.ex/(n-1):r,cut=n===1&&!manual.length?F.ex:0,tiles=[];let a=s0;F.t.forEach((L,i)=>{const len=i===0&&cut?L-cut:L;tiles.push([a,a+len]);a=a+len-rEff;});
+    // apoios: 1ª terça, meio de cada recobrimento, última terça, e intermediárias onde o vão passa do máximo
+    const sup=[sP0];for(let i=0;i+1<tiles.length;i++)sup.push((tiles[i+1][0]+tiles[i][1])/2);sup.push(sPn);
+    const all=[];for(let i=0;i<sup.length;i++){all.push(sup[i]);if(i+1<sup.length){const g=sup[i+1]-sup[i],k=Math.ceil(g/vmax-1e-6)-1;for(let j=1;j<=k;j++)all.push(sup[i]+g*j/(k+1));}}
+    // largura: até o meio do vão com a região vizinha, ou 10 cm além da tesoura da ponta
     const YA=pv&&adj(pv.ts[pv.ts.length-1],f0)?(pv.ts[pv.ts.length-1].y+f0.y)/2:f0.y-f0.t/2-c.lat,YB=nx&&adj(f1,nx.ts[0])?(f1.y+nx.ts[0].y)/2:f1.y+f1.t/2+c.lat;
     const cols=[];for(let y=YA+c.total/2;y+c.total/2<=YB+.01;y+=c.util)cols.push(y);if(!cols.length||cols[cols.length-1]+c.total/2<YB-.01)cols.push(YB-c.total/2);
-    cols.forEach(yc=>tiles.forEach(([ta,tb])=>{const A=P(ta,off),B=P(tb,off);out.push({view:'front',mat:tm.id,rot:false,x1:A[0],y1:-A[1],x2:B[0],y2:-B[1],z:yc,z2:yc,bw:c.total,roof:null});}));
-    rep_.push(`${n} fiada${n>1?'s':''} (${F.t.map(v=>fmm(v)).join(' + ')}${cut?`, 1ª cortada ${fmm(cut)}`:''}; recobr. ${fmm(rEff)}) × ${cols.length} colunas`);}
-  // terças: uma linha em cada apoio; corre por todas as tesouras vizinhas que alcançam aquele ponto; emendas sobre tesouras
-  supAll.sort((a,b)=>a-b);const lines=[];supAll.forEach(v=>{if(!lines.length||v-lines[lines.length-1]>=pt)lines.push(v);});let nT=0;
-  lines.forEach(sv=>{const C=P(sv,pw/2);let run=[];const flush=()=>{if(!run.length)return;const Ys=run.map(t=>t.y),y0=Ys[0]-run[0].t/2,y1=Ys[Ys.length-1]+run[run.length-1].t/2;let cur=y0,g=0;
-      while(g++<500){if(y1-cur<=c.lmax+1e-6){out.push({view:'side',mat:tp.id,rot,x1:cur,y1:-C[1],x2:y1,y2:-C[1],z:C[0],z2:C[0],tilt,terca:1});nT++;break;}let j=-1;Ys.forEach((y,k)=>{if(y>cur+1&&y-cur<=c.lmax+1e-6)j=k;});
-        if(j<0){out.push({view:'side',mat:tp.id,rot,x1:cur,y1:-C[1],x2:y1,y2:-C[1],z:C[0],z2:C[0],tilt,terca:1});nT++;break;}out.push({view:'side',mat:tp.id,rot,x1:cur,y1:-C[1],x2:Ys[j],y2:-C[1],z:C[0],z2:C[0],tilt,terca:1});nT++;cur=Ys[j];}run=[];};
-    T.forEach((t,i)=>{const ok=sv-pt/2>=t.lo-.5&&sv+pt/2<=t.hi+.5;if(ok&&run.length&&!adj(run[run.length-1],t))flush();if(ok)run.push(t);else flush();});flush();});
+    cols.forEach(yc=>tiles.forEach(([ta,tb])=>{const A=P(ta,off),B=P(tb,off);out.push({view:'front',mat:tm.id,rot:false,x1:A[0],y1:-A[1],x2:B[0],y2:-B[1],z:yc,z2:yc,bw:c.total,rreg:G.id});}));
+    // terças desta região: correm pelas tesouras dela e seguem até a 1ª tesoura da região seguinte (o vão entre as duas fica apoiado)
+    const TL=G.ts.slice();if(nx&&adj(f1,nx.ts[0]))TL.push(nx.ts[0]);
+    const lines=[];all.sort((x,y)=>x-y).forEach(v=>{if(!lines.length||v-lines[lines.length-1]>=pt)lines.push(v);});nL+=lines.length;
+    lines.forEach(sv=>{const C=P(sv,pw/2),pc=(y0,y1)=>{out.push({view:'side',mat:tp.id,rot,x1:y0,y1:-C[1],x2:y1,y2:-C[1],z:C[0],z2:C[0],tilt,terca:1,rreg:G.id});nT++;};let run=[];
+      const flush=()=>{if(!run.length)return;const Ys=run.map(t=>t.y),y0=Ys[0]-run[0].t/2,y1=Ys[Ys.length-1]+run[run.length-1].t/2;let cur=y0,g=0;
+        while(g++<500){if(y1-cur<=c.lmax+1e-6){pc(cur,y1);break;}let j=-1;Ys.forEach((y,k)=>{if(y>cur+1&&y-cur<=c.lmax+1e-6)j=k;});if(j<0){pc(cur,y1);break;}pc(cur,Ys[j]);cur=Ys[j];}run=[];};
+      TL.forEach(t=>{const ok=sv-pt/2>=t.lo-.5&&sv+pt/2<=t.hi+.5;if(ok&&run.length&&!adj(run[run.length-1],t))flush();if(ok)run.push(t);else flush();});flush();});
+    rep_.push(`${n} fiada${n>1?'s':''} (${F.t.map(v=>fmm(v)).join(' + ')}${cut?`, 1ª cortada ${fmm(cut)}`:''}; recobr. ${fmm(rEff)}) × ${cols.length} colunas`);});
   const key='roof|'+Math.round(RL.lo[0]*RL.n[0]+RL.lo[1]*RL.n[1])+'|'+Math.round(RL.ang*1000);out.forEach(q=>q.roof=key);
-  push();S.pieces=S.pieces.filter(p=>p.roof!==key);out.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
+  const ids=new Set(work.map(G=>G.id));push();S.pieces=S.pieces.filter(p=>!(p.roof===key&&(!manual.length||ids.has(p.rreg)||!p.rreg)));out.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
   const nt=out.filter(q=>q.view==='front').length,deg=RL.ang*180/Math.PI;
-  msg(`Telhado (${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°, ${T.length} tesouras${regs.length>1?`, ${regs.length} regiões`:''}): ${rep_.join(' · ')} = ${nt} telhas · ${lines.length} linhas de terça (${nT} peças). TLH oculta/mostra as telhas.`,14000);
+  msg(`Telhado (${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°${manual.length?', fiadas manuais nas tesouras iguais à clicada':`, ${T.length} tesouras${regs.length>1?`, ${regs.length} regiões`:''}`}): ${rep_.join(' · ')} = ${nt} telhas · ${nL} linhas de terça (${nT} peças). TLH oculta/mostra as telhas.${warn.length?' Atenção: '+[...new Set(warn)].join('; ')+'.':''}`,16000);
 }
 // ---- ENGASTE: ponta da tesoura embutida na parede — a parede é cortada e o bolsão preenchido com concreto ----
 const engVol=p=>Math.max(0,Math.abs(polyArea(p.poly))*(p.th||0)-(p.vwood||0))/1e6; // m³ (cm³ → m³)
@@ -1979,7 +1991,7 @@ function mesh(p){
     const m=mat(p.mat),H=m.h,es=m.esp||.6,Wd=bwOf(p),A=[p.x1,-p.y1],B=[p.x2,-p.y2],L=Math.hypot(B[0]-A[0],B[1]-A[1])||1,d=[(B[0]-A[0])/L,(B[1]-A[1])/L];let n=[-d[1],d[0]];if(n[1]<0)n=[-n[0],-n[1]];
     const N=Math.max(12,Math.round(Wd/ONDA_P*12)),pos=[],tri=(a,b2,c)=>pos.push(...a,...b2,...c),hv=y=>H*(1-Math.cos(2*Math.PI*(y+Wd/2)/ONDA_P))/2-H/2;
     const V=(s0,yy,dz)=>{const h=hv(yy)+dz;return[A[0]+d[0]*s0+n[0]*h,A[1]+d[1]*s0+n[1]*h,p.z+yy];};
-    for(let i=0;i<N;i++){const y0=-Wd/2+Wd*i/N,y1=-Wd/2+Wd*(i+1)/N;[[0,1],[-es,-1]].forEach(([dz,sg])=>{const a=V(0,y0,dz),b2=V(L,y0,dz),c=V(L,y1,dz),e=V(0,y1,dz);if(sg>0){tri(a,b2,c);tri(a,c,e);}else{tri(a,c,b2);tri(a,e,c);}});}
+    for(let i=0;i<N;i++){const y0=-Wd/2+Wd*i/N,y1=-Wd/2+Wd*(i+1)/N;[[es,1],[0,-1]].forEach(([dz,sg])=>{const a=V(0,y0,dz),b2=V(L,y0,dz),c=V(L,y1,dz),e=V(0,y1,dz);if(sg>0){tri(a,b2,c);tri(a,c,e);}else{tri(a,c,b2);tri(a,e,c);}});}
     mt.side=THREE.DoubleSide;geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));geo.computeVertexNormals();obj=new THREE.Mesh(geo,mt);
     {const c=[[0,-Wd/2],[L,-Wd/2],[L,Wd/2],[0,Wd/2]].map(([sv,yy])=>V(sv,yy,0)),lp=[];[[0,1],[1,2],[2,3],[3,0]].forEach(([i,j])=>lp.push(...c[i],...c[j]));const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(lp,3));obj.add(new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0x6b7378,transparent:true,opacity:.7})));}
     return obj;
