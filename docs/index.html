@@ -328,7 +328,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-1';
+const APP_VER='2026.11.27-2';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -882,7 +882,24 @@ function lhGeom(A,B,zc0,Lmax){const ck='lh|'+A.p.id+'|'+B.p.id+'|'+zc0.toFixed(1
   if(cmd)(cmd._xg=cmd._xg||{})[ck]=r;return r;}
 function placeLinhal(A,B,zc0,Lmax){const g=lhGeom(A,B,zc0,Lmax);if(g.err){msg(g.err,7000);return;}push();g.pieces.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
   const moved=Math.abs(g.zc-zc0)>.25;msg(`Linhal criado: ${g.seg.length} tábua${g.seg.length>1?'s':''} (${g.seg.map(([a,b])=>fmm(b-a)).join(' + ')} mm), de pé, na altura ${fmm(g.zc)} mm${moved?' (ajustada para fugir de diagonal/conector)':''}. Próximo linhal ou Enter para sair.`,9000);
-  cmd.A=cmd.B=null;cmd._xg=null;cmd.step='lh1';sel.clear();typed='';refresh();}
+  cmd.lastLH={A,B,zc:g.zc,L:Lmax};cmd.A=cmd.B=null;cmd._xg=null;cmd.step='lh1';sel.clear();typed='';refresh();}
+async function repeatLinhal(){const X=cmd&&cmd.lastLH;if(!X){msg('Crie um linhal primeiro.');return;}
+  const T=montLine(X.A),ia0=T.findIndex(t=>t.p.id===X.A.p.id),ib0=T.findIndex(t=>t.p.id===X.B.p.id);if(ia0<0||ib0<0){msg('Não achei a linha de montantes deste linhal.');return;}
+  const ia=Math.min(ia0,ib0),ib=Math.max(ia0,ib0),k=ib-ia;
+  const f=await ask('Repetir o linhal',`<p>Linha de montantes com <b>${T.length}</b> tesouras. O linhal criado vai da ${ia+1}ª à ${ib+1}ª (pega <b>${k}</b> vão${k>1?'s':''}).</p>
+    <label class="drow"><span>Vãos com linhal</span><input name="k" type="number" min="1" step="1" value="${k}"></label>
+    <label class="drow"><span>Vãos sem linhal entre um trecho e o próximo</span><input name="g" type="number" min="0" step="1" value="0"></label>
+    <label class="drow"><span>Comprimento máximo da tábua (mm)</span><input name="L" type="number" min="100" max="${fmm(CV_LMAX)}" step="10" value="${fmm(X.L)}"></label>
+    <label class="drow"><span>Sentido</span><select name="d"><option value="2">Nos dois sentidos</option><option value="1">Só para frente</option><option value="-1">Só para trás</option></select></label>
+    <p class="hint">Mesma altura do linhal criado (${fmm(X.zc)} mm); onde pegar em diagonal ou conector, o trecho sobe ou desce sozinho.</p>`,'Repetir');
+  if(!f)return;const kk=Math.max(1,Math.round(+f.k||k)),g=Math.max(0,Math.round(+f.g||0)),L=Math.min(CV_LMAX,toMod(parseFloat(String(f.L).replace(',','.'))||fmm(X.L))),d=+f.d,step=kk+g;
+  const pos=[];if(d!==-1)for(let a=ia+step;a+kk<=T.length-1;a+=step)pos.push(a);if(d!==1)for(let a=ia-step;a>=0;a-=step)pos.push(a);
+  if(!pos.length){msg('Não há tesouras suficientes para repetir com esse padrão.',6000);return;}
+  push();let ok=0,n=0;const fails=[];
+  pos.sort((a,b)=>a-b).forEach(a=>{cmd._xg=null;const gm=lhGeom(T[a],T[a+kk],X.zc,L);if(gm.err){fails.push(`${a+1}ª–${a+kk+1}ª`);return;}gm.pieces.forEach(q=>{S.pieces.push({...q,id:S.nid++});n++;});ok++;});
+  if(!ok){hist.pop();msg('Nenhum trecho coube ('+fails.join(', ')+').',8000);return;}
+  changed();msg(`${ok} trecho${ok>1?'s':''} de linhal repetido${ok>1?'s':''} (${n} tábuas; ${kk} vão${kk>1?'s':''} com, ${g} sem).${fails.length?' Não couberam: '+fails.join(', ')+'.':''}`,9000);
+}
 // ---- repetir o X ao longo da linha de montantes (vãos com X / vãos sem X) ----
 function montLine(A){const by=new Map();
   S.pieces.forEach(p=>{if(!isMontante(p))return;const xm=(p.x1+p.x2)/2;if(Math.abs(xm-A.xm)>A.wm)return;const k=Math.round(p.z*10);const o=by.get(k);if(!o||Math.abs(xm-A.xm)<Math.abs((o.x1+o.x2)/2-A.xm))by.set(k,p);});
@@ -1534,6 +1551,7 @@ window.addEventListener('keydown',e=>{
   if(cmd&&cmd.name==='grid'&&(cmd.step==='g1'||cmd.step==='g2')&&!cmdBuf&&!typed&&/^[hv]$/i.test(e.key)){const k=e.key.toLowerCase();cmd.gmode=cmd.gmode===k?null:k;cmd.step='g1';refresh();return;}
   if(cmd&&cmd.step==='factor'&&!cmdBuf&&!typed&&e.key.toLowerCase()==='r'){cmd.step='r1';refresh();return;}
   if(cmd&&cmd.name==='contrav'&&cmd.step==='cv1'&&cmd.lastX&&!cmdBuf&&!typed&&e.key.toLowerCase()==='r'){e.preventDefault();repeatX();return;}
+  if(cmd&&cmd.name==='linhal'&&cmd.step==='lh1'&&cmd.lastLH&&!cmdBuf&&!typed&&e.key.toLowerCase()==='r'){e.preventDefault();repeatLinhal();return;}
   if(cmd&&(cmd.name==='line'||cmd.name==='pline')&&(cmd.step==='p1'||cmd.step==='p2')&&!cmdBuf&&!typed){const k=e.key.toLowerCase();
     if(k==='j'){lineJust={c:'e',e:'i',i:'c'}[lineJust];if(cmd.pts&&cmd.pts.length>1)rebuildChain(false);msg('Alinhamento: '+JUST_NAME[lineJust]+'.');refresh();return;}
     if(k==='c'&&cmd.step==='p2'){closeChain();return;}
@@ -1563,7 +1581,7 @@ function prompt(){
     p1:`${n} ${m.name} ${m.kind?'esp. '+fmm(m.h):fmm(m.b)+'×'+fmm(m.h)} mm${m.kind==='wall'&&VIEW==='top'?' · altura '+fmm(wallH(m))+' [A]':''} · [J = alinhamento: ${JUST_NAME[lineJust]}] · Specify first point:`,
     p2:m.len?`${n} · Peça pronta de ${fmm(m.len)} mm — clique a direção · Enter encerra:`:`${n} · Specify next point or [comprimento + Enter] · [C = fechar, U = desfaz ponto, J = ${JUST_NAME[lineJust]}${m.kind==='wall'&&VIEW==='top'?', A = altura '+fmm(wallH(m)):''}]:`,
     lh0:`${n} · Clique no MONTANTE que vai receber o linhal:`,
-    lh1:`${n} ${m.name} ${fmm(m.b)}×${fmm(m.h)} · Clique no montante da PRIMEIRA tesoura, na altura do linhal · Enter encerra:`,
+    lh1:`${n} ${m.name} ${fmm(m.b)}×${fmm(m.h)} · Clique no montante da PRIMEIRA tesoura, na altura do linhal${cmd&&cmd.lastLH?' · [R = repetir o último linhal ao longo da linha]':''} · Enter encerra:`,
     lh2:`${n} · Clique no montante da ÚLTIMA tesoura do linhal:`,
     lhL:`${n} · Comprimento máximo de cada tábua (mm) [Enter = ${fmm(CV_LMAX)}] — as emendas caem sempre num montante:`,
     cv0:`${n} · Clique no MONTANTE que vai receber o travamento:`,
