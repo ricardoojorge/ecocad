@@ -332,7 +332,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-6';
+const APP_VER='2026.11.27-7';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -876,7 +876,9 @@ function placeX(A,B,L){const g=xGeom(A,B,L);if(!g||g.err){msg(g?g.err:'Não foi 
 // ---- TELHADO: paginação de telhas de fibrocimento → terças nos apoios → camada de telhas que liga/desliga ----
 function toggleTiles(){showTiles=!showTiles;const b=$('tiles');if(b)b.classList.toggle('on',showTiles);refresh();msg(showTiles?'Telhas visíveis':'Telhas ocultas (TLH mostra de novo)');}
 const TILE_DEF={esp:6,util:85,total:110,lens:'1220, 1530, 1830, 2130, 2440, 3050, 3660',over:10,cal:300,top:0,lat:10,lmax:250};
-function tileMat(esp){const id='telha_fc'+esp;let m=S.mats.find(x=>x.id===id);if(!m){m={id,name:`Telha fibrocimento ${esp} mm`,b:110,h:esp/10,len:0,color:'#a9b0b4',kind:'tile'};S.mats.push(m);renderMats();}return m;}
+const ONDA_H=5.1,ONDA_P=17.7; // telha ondulada: altura da onda 51 mm, passo 177 mm (6 ondas em 1,10 m)
+function tileMat(esp){const id='telha_fc'+esp;let m=S.mats.find(x=>x.id===id);if(!m){m={id,name:`Telha ondulada fibrocimento ${esp} mm`,b:110,h:ONDA_H,esp:esp/10,len:0,color:'#a9b0b4',kind:'tile'};S.mats.push(m);renderMats();}
+  if(m.h<1){m.h=ONDA_H;m.esp=esp/10;m.name=`Telha ondulada fibrocimento ${esp} mm`;}return m;}
 // linha da face de cima do banzo clicado (com as emendas do mesmo banzo), da ponta baixa à alta, em (x, z)
 function roofLine(h){const same_=S.pieces.filter(p=>p.view==='front'&&Math.abs(p.z-h.z)<.5&&!isPlate(p)&&!mat(p.mat).kind),d=[h.x2-h.x1,h.y2-h.y1],L=Math.hypot(...d),u=[d[0]/L,d[1]/L];
   const col=same_.filter(p=>{const e=[p.x2-p.x1,p.y2-p.y1],l=Math.hypot(...e);if(l<1)return false;if(Math.abs(e[0]/l*u[1]-e[1]/l*u[0])>.01)return false;return Math.abs((p.x1-h.x1)*u[1]-(p.y1-h.y1)*u[0])<1;});
@@ -904,32 +906,42 @@ async function askRoof(h){const RL=roofLine(h),deg=RL.ang*180/Math.PI,c=Object.a
   if(!f)return;const num=k=>toMod(parseFloat(String(f[k]).replace(',','.'))||0);
   const cfg={esp:+f.esp,util:num('util'),total:num('total'),lens:String(f.lens),rec:num('rec'),cal:num('cal'),top:num('top'),over:num('over'),lat:num('lat'),mat:f.mat,lmax:num('lmax')||250};
   S.roofCfg={...cfg,rec:cfg.rec===(rAuto||25)?0:cfg.rec};makeRoof(h,RL,cfg);}
+// faixa do banzo superior de cada tesoura que fica no mesmo plano da água clicada (s = posição ao longo da rampa)
+function chordRanges(RL){const byY=new Map(),rx=RL.e[0],ry=-RL.e[1];
+  const fl=p=>{const a=faceLine(p,1),b=faceLine(p,-1);return(a.ay+a.by)<(b.ay+b.by)?a:b;},dist=q=>(q[0]-RL.lo[0])*RL.n[0]+(-q[1]-RL.lo[1])*RL.n[1],sOf=q=>(q[0]-RL.lo[0])*RL.e[0]+(-q[1]-RL.lo[1])*RL.e[1];
+  S.pieces.forEach(p=>{if(p.view!=='front'||isPlate(p)||mat(p.mat).kind||p.post)return;const ex=p.x2-p.x1,ey=p.y2-p.y1,l=Math.hypot(ex,ey);if(l<1)return;if(Math.abs(ex/l*ry-ey/l*rx)>.01)return;
+    const F=fl(p),A=[F.ax,F.ay],B=[F.bx,F.by];if(Math.abs(dist(A))>1.5||Math.abs(dist(B))>1.5)return;const k=Math.round(p.z*2)/2,r=byY.get(k)||{y:p.z,lo:1e9,hi:-1e9,t:dims(p).t};
+    r.lo=Math.min(r.lo,sOf(A),sOf(B));r.hi=Math.max(r.hi,sOf(A),sOf(B));r.t=Math.max(r.t,dims(p).t);byY.set(k,r);});
+  return[...byY.values()].sort((a,b)=>a.y-b.y);}
 function makeRoof(h,RL,c){
   const tp=S.mats.find(m=>m.id===c.mat);if(!tp){msg('Escolha a madeira da terça.');return;}
   const rot=tp.b>tp.h,pw=Math.max(tp.b,tp.h),pt=Math.min(tp.b,tp.h),ex=Math.abs(RL.e[0])||1e-6,vmax=c.esp==8?199:169,r=c.rec||14;
-  const sP0=c.cal/ex+pt/2,sPn=RL.L-c.top/ex-pt/2;if(sPn-sP0<10){msg('A água é curta demais para essa calha.',6000);return;}
-  const s0=sP0-pt/2-c.over,s1=sPn+pt/2+c.over,R=s1-s0;
   const lens=c.lens.split(/[;,\s]+/).map(v=>toMod(parseFloat(v.replace(',','.')))).filter(v=>v>20).sort((a,b)=>a-b);if(!lens.length){msg('Informe os comprimentos de telha.');return;}
-  const F=bestFiadas(R,lens,r);if(!F){msg('Não achei combinação de telhas para essa água.',6000);return;}
-  const n=F.t.length,rEff=n>1?r+F.ex/(n-1):r,cut=n===1?F.ex:0,tiles=[];let a=s0;F.t.forEach((L,i)=>{const len=i===0&&cut?L-cut:L;tiles.push([a,a+len]);a=a+len-rEff;});
-  // apoios: 1ª terça, meio de cada recobrimento, última terça; e terças intermediárias onde o vão passar do máximo
-  let sup=[sP0];for(let i=0;i+1<tiles.length;i++)sup.push((tiles[i+1][0]+tiles[i][1])/2);sup.push(sPn);
-  const all=[];for(let i=0;i<sup.length;i++){all.push(sup[i]);if(i+1<sup.length){const g=sup[i+1]-sup[i],k=Math.ceil(g/vmax-1e-6)-1;for(let j=1;j<=k;j++)all.push(sup[i]+g*j/(k+1));}}
-  // tesouras desta água (planos da Frontal) e largura do telhado
-  const planes=[];S.pieces.forEach(p=>{if(p.view!=='front'||isPlate(p)||mat(p.mat).kind)return;if(!planes.some(z=>Math.abs(z-p.z)<.5))planes.push(p.z);});planes.sort((a,b)=>a-b);
-  const tt=dims(h).t,Y0=planes[0]-tt/2,Y1=planes[planes.length-1]+tt/2,T0=Y0-c.lat,T1=Y1+c.lat;
-  const key='roof|'+Math.round(RL.lo[0])+'|'+Math.round(RL.lo[1])+'|'+Math.round(RL.hi[0]);
-  const P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off];
-  const out=[],tilt=Math.atan2(-RL.n[0],RL.n[1]);
-  // terças: deitadas sobre o banzo, de pé em relação ao telhado; emendas sobre tesouras, peças ≤ máx.
-  const segs=[];{let cur=Y0,g=0;while(g++<500){if(Y1-cur<=c.lmax+1e-6){segs.push([cur,Y1]);break;}let j=-1;planes.forEach((y,k)=>{if(y>cur+1&&y-cur<=c.lmax+1e-6)j=k;});if(j<0){msg('Vão entre tesouras maior que o comprimento máximo da terça.',7000);return;}segs.push([cur,planes[j]]);cur=planes[j];}}
-  all.forEach(sv=>{const C=P(sv,pw/2);segs.forEach(([y0,y1])=>out.push({view:'side',mat:tp.id,rot,x1:y0,y1:-C[1],x2:y1,y2:-C[1],z:C[0],z2:C[0],tilt,roof:key,terca:1}));});
-  // telhas: peças finas na Frontal, uma por coluna e fiada, apoiadas sobre as terças
-  const tm=tileMat(c.esp),cols=[];for(let y=T0+c.total/2;y+c.total/2<=T1+.01;y+=c.util)cols.push(y);if(!cols.length||cols[cols.length-1]+c.total/2<T1-.01)cols.push(T1-c.total/2);
-  const off=pw+tm.h/2;cols.forEach(yc=>tiles.forEach(([ta,tb])=>{const A=P(ta,off),B=P(tb,off);out.push({view:'front',mat:tm.id,rot:false,x1:A[0],y1:-A[1],x2:B[0],y2:-B[1],z:yc,z2:yc,bw:c.total,roof:key});}));
+  const T=chordRanges(RL);if(!T.length){msg('Não achei tesouras com o banzo nesse plano.',6000);return;}
+  const gaps=T.slice(1).map((t,i)=>t.y-T[i].y).sort((a,b)=>a-b),sp=gaps.length?gaps[Math.floor(gaps.length/2)]:120,adj=(a,b)=>b.y-a.y<=sp*1.6;
+  // regiões: tesouras vizinhas com o mesmo trecho de banzo (telhado em L, tesouras de tamanhos diferentes…)
+  const regs=[];T.forEach((t,i)=>{const R=regs[regs.length-1];if(R&&adj(T[i-1],t)&&Math.abs(R.lo-t.lo)<1&&Math.abs(R.hi-t.hi)<1)R.ts.push(t);else regs.push({lo:t.lo,hi:t.hi,ts:[t]});});
+  const tm=tileMat(c.esp),P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off],out=[],tilt=Math.atan2(-RL.n[0],RL.n[1]),supAll=[],rep_=[],off=pw+tm.h/2;
+  for(let ri=0;ri<regs.length;ri++){const G=regs[ri],f0=G.ts[0],f1=G.ts[G.ts.length-1],pv=regs[ri-1],nx=regs[ri+1];
+    const sP0=G.lo+c.cal/ex+pt/2,sPn=G.hi-c.top/ex-pt/2;if(sPn-sP0<10){rep_.push('trecho curto ignorado');continue;}
+    const s0=sP0-pt/2-c.over,s1=sPn+pt/2+c.over,R=s1-s0,F=bestFiadas(R,lens,r);if(!F){rep_.push('sem combinação de telhas');continue;}
+    const n=F.t.length,rEff=n>1?r+F.ex/(n-1):r,cut=n===1?F.ex:0,tiles=[];let a=s0;F.t.forEach((L,i)=>{const len=i===0&&cut?L-cut:L;tiles.push([a,a+len]);a=a+len-rEff;});
+    let sup=[sP0];for(let i=0;i+1<tiles.length;i++)sup.push((tiles[i+1][0]+tiles[i][1])/2);sup.push(sPn);
+    for(let i=0;i<sup.length;i++){supAll.push(sup[i]);if(i+1<sup.length){const g=sup[i+1]-sup[i],k=Math.ceil(g/vmax-1e-6)-1;for(let j=1;j<=k;j++)supAll.push(sup[i]+g*j/(k+1));}}
+    const YA=pv&&adj(pv.ts[pv.ts.length-1],f0)?(pv.ts[pv.ts.length-1].y+f0.y)/2:f0.y-f0.t/2-c.lat,YB=nx&&adj(f1,nx.ts[0])?(f1.y+nx.ts[0].y)/2:f1.y+f1.t/2+c.lat;
+    const cols=[];for(let y=YA+c.total/2;y+c.total/2<=YB+.01;y+=c.util)cols.push(y);if(!cols.length||cols[cols.length-1]+c.total/2<YB-.01)cols.push(YB-c.total/2);
+    cols.forEach(yc=>tiles.forEach(([ta,tb])=>{const A=P(ta,off),B=P(tb,off);out.push({view:'front',mat:tm.id,rot:false,x1:A[0],y1:-A[1],x2:B[0],y2:-B[1],z:yc,z2:yc,bw:c.total,roof:null});}));
+    rep_.push(`${n} fiada${n>1?'s':''} (${F.t.map(v=>fmm(v)).join(' + ')}${cut?`, 1ª cortada ${fmm(cut)}`:''}; recobr. ${fmm(rEff)}) × ${cols.length} colunas`);}
+  // terças: uma linha em cada apoio; corre por todas as tesouras vizinhas que alcançam aquele ponto; emendas sobre tesouras
+  supAll.sort((a,b)=>a-b);const lines=[];supAll.forEach(v=>{if(!lines.length||v-lines[lines.length-1]>=pt)lines.push(v);});let nT=0;
+  lines.forEach(sv=>{const C=P(sv,pw/2);let run=[];const flush=()=>{if(!run.length)return;const Ys=run.map(t=>t.y),y0=Ys[0]-run[0].t/2,y1=Ys[Ys.length-1]+run[run.length-1].t/2;let cur=y0,g=0;
+      while(g++<500){if(y1-cur<=c.lmax+1e-6){out.push({view:'side',mat:tp.id,rot,x1:cur,y1:-C[1],x2:y1,y2:-C[1],z:C[0],z2:C[0],tilt,terca:1});nT++;break;}let j=-1;Ys.forEach((y,k)=>{if(y>cur+1&&y-cur<=c.lmax+1e-6)j=k;});
+        if(j<0){out.push({view:'side',mat:tp.id,rot,x1:cur,y1:-C[1],x2:y1,y2:-C[1],z:C[0],z2:C[0],tilt,terca:1});nT++;break;}out.push({view:'side',mat:tp.id,rot,x1:cur,y1:-C[1],x2:Ys[j],y2:-C[1],z:C[0],z2:C[0],tilt,terca:1});nT++;cur=Ys[j];}run=[];};
+    T.forEach((t,i)=>{const ok=sv-pt/2>=t.lo-.5&&sv+pt/2<=t.hi+.5;if(ok&&run.length&&!adj(run[run.length-1],t))flush();if(ok)run.push(t);else flush();});flush();});
+  const key='roof|'+Math.round(RL.lo[0]*RL.n[0]+RL.lo[1]*RL.n[1])+'|'+Math.round(RL.ang*1000);out.forEach(q=>q.roof=key);
   push();S.pieces=S.pieces.filter(p=>p.roof!==key);out.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
-  const deg=RL.ang*180/Math.PI;
-  msg(`Telhado: ${n} fiada${n>1?'s':''} (${F.t.map(v=>fmm(v)).join(' + ')} mm, recobrimento ${fmm(rEff)}${cut?`, 1ª telha cortada em ${fmm(cut)}`:''}) × ${cols.length} colunas = ${n*cols.length} telhas · ${all.length} linhas de terça (vão máx. ${fmm(Math.max(...all.slice(1).map((v,i)=>v-all[i])))} mm) · ${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°. TLH oculta/mostra as telhas.`,12000);
+  const nt=out.filter(q=>q.view==='front').length,deg=RL.ang*180/Math.PI;
+  msg(`Telhado (${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°, ${T.length} tesouras${regs.length>1?`, ${regs.length} regiões`:''}): ${rep_.join(' · ')} = ${nt} telhas · ${lines.length} linhas de terça (${nT} peças). TLH oculta/mostra as telhas.`,14000);
 }
 // ---- ENGASTE: ponta da tesoura embutida na parede — a parede é cortada e o bolsão preenchido com concreto ----
 const engVol=p=>Math.max(0,Math.abs(polyArea(p.poly))*(p.th||0)-(p.vwood||0))/1e6; // m³ (cm³ → m³)
@@ -1359,7 +1371,9 @@ function draw(){
     const fill=m.kind==='fill';ctx.globalAlpha=own||fill?.85:.28;ctx.fillStyle=m.color;ctx.fill();ctx.globalAlpha=own||fill?1:.55;
     const lk=!s&&!hv&&p.gid&&selG.has(p.gid);
     if(!joined||s||hv||lk){ctx.lineWidth=s||hv?2.2:lk?1.6:1;ctx.strokeStyle=s||hv?selC:lk?css('--accent'):'rgba(40,25,10,.75)';if((hv&&!s)||lk)ctx.setLineDash([5,3]);ctx.stroke();ctx.setLineDash([]);}ctx.globalAlpha=1;
-    if(isBuild(p)){const fp=fp0;ctx.save();poly(fp);ctx.clip();const wall=mat(p.mat).kind==='wall';ctx.strokeStyle=wall?'rgba(120,70,40,.45)':'rgba(70,80,90,.45)';ctx.fillStyle='rgba(70,80,90,.5)';ctx.lineWidth=1;
+    if(m.kind==='tile'){if(VIEW==='top'){const fp=fp0,xs=fp.map(q=>q[0]),ys=fp.map(q=>q[1]),x0=Math.min(...xs),x1=Math.max(...xs),Wd=bwOf(p);ctx.save();poly(fp);ctx.clip();ctx.strokeStyle='rgba(70,78,84,.55)';ctx.lineWidth=1;ctx.beginPath();
+        for(let k=0;k<Math.round(Wd/ONDA_P);k++){const y=p.z-Wd/2+ONDA_P*(k+.5);ctx.moveTo(...W2S(x0,y));ctx.lineTo(...W2S(x1,y));}ctx.stroke();ctx.restore();}}
+    else if(isBuild(p)){const fp=fp0;ctx.save();poly(fp);ctx.clip();const wall=mat(p.mat).kind==='wall';ctx.strokeStyle=wall?'rgba(120,70,40,.45)':'rgba(70,80,90,.45)';ctx.fillStyle='rgba(70,80,90,.5)';ctx.lineWidth=1;
       const xs=fp.map(q=>W2S(...q)),x0=Math.min(...xs.map(q=>q[0])),x1=Math.max(...xs.map(q=>q[0])),y0=Math.min(...xs.map(q=>q[1])),y1=Math.max(...xs.map(q=>q[1]));
       const fam=st=>{ctx.beginPath();for(let k=Math.floor((x0+y0)/st)*st;k<=x1+y1;k+=st){ctx.moveTo(k-y1,y1);ctx.lineTo(k-y0,y0);}ctx.stroke();};
       if(wall)fam(8);
@@ -1959,6 +1973,16 @@ function mesh(p){
     earClip(fp).forEach(([a,b2,c])=>{tri(Bv[a],Bv[b2],Bv[c]);tri(Tv[a],Tv[c],Tv[b2]);});
     for(let i=0;i<n;i++){const j=(i+1)%n;tri(Bv[i],Tv[j],Bv[j]);tri(Bv[i],Tv[i],Tv[j]);}
     mt.side=THREE.DoubleSide;geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));geo.computeVertexNormals();obj=new THREE.Mesh(geo,mt);
+  }
+  else if(mat(p.mat).kind==='tile'&&p.view==='front'){
+    // telha ondulada: ondas correndo no sentido da rampa; vale apoiado na terça, crista = altura da onda
+    const m=mat(p.mat),H=m.h,es=m.esp||.6,Wd=bwOf(p),A=[p.x1,-p.y1],B=[p.x2,-p.y2],L=Math.hypot(B[0]-A[0],B[1]-A[1])||1,d=[(B[0]-A[0])/L,(B[1]-A[1])/L];let n=[-d[1],d[0]];if(n[1]<0)n=[-n[0],-n[1]];
+    const N=Math.max(12,Math.round(Wd/ONDA_P*12)),pos=[],tri=(a,b2,c)=>pos.push(...a,...b2,...c),hv=y=>H*(1-Math.cos(2*Math.PI*(y+Wd/2)/ONDA_P))/2-H/2;
+    const V=(s0,yy,dz)=>{const h=hv(yy)+dz;return[A[0]+d[0]*s0+n[0]*h,A[1]+d[1]*s0+n[1]*h,p.z+yy];};
+    for(let i=0;i<N;i++){const y0=-Wd/2+Wd*i/N,y1=-Wd/2+Wd*(i+1)/N;[[0,1],[-es,-1]].forEach(([dz,sg])=>{const a=V(0,y0,dz),b2=V(L,y0,dz),c=V(L,y1,dz),e=V(0,y1,dz);if(sg>0){tri(a,b2,c);tri(a,c,e);}else{tri(a,c,b2);tri(a,e,c);}});}
+    mt.side=THREE.DoubleSide;geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));geo.computeVertexNormals();obj=new THREE.Mesh(geo,mt);
+    {const c=[[0,-Wd/2],[L,-Wd/2],[L,Wd/2],[0,Wd/2]].map(([sv,yy])=>V(sv,yy,0)),lp=[];[[0,1],[1,2],[2,3],[3,0]].forEach(([i,j])=>lp.push(...c[i],...c[j]));const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(lp,3));obj.add(new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0x6b7378,transparent:true,opacity:.7})));}
+    return obj;
   }
   else if(p.cut1||p.cut2||p.xc1||p.xc2){
     const fp=footprint(p);let ar=0;for(let i=0;i<fp.length;i++){const A=fp[i],B=fp[(i+1)%fp.length];ar+=A[0]*B[1]-B[0]*A[1];}if(ar<0)fp.reverse();
