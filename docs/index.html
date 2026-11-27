@@ -328,7 +328,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-14';
+const APP_VER='2026.11.27-15';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -898,7 +898,7 @@ async function askRoof(h,inter){const RL=roofLine(h),deg=RL.ang*180/Math.PI,c=Ob
     <label class="drow"><span>Recobrimento longitudinal (mm)</span><input name="rec" type="number" step="10" value="${fmm(c.rec||rAuto||25)}"></label>
     <label class="drow"><span>Calha: da ponta baixa do banzo até a 1ª terça (mm, na horizontal)</span><input name="cal" type="number" step="10" value="${fmm(c.cal)}"></label>
     <label class="drow"><span>Folga da telha no cume / platibanda (0 a 50 mm)</span><input name="top" type="number" min="0" max="50" step="5" value="${fmm(Math.min(5,c.top||0))}"></label>
-    <label class="drow"><span>Telha passa da 1ª terça, lado da calha (mm)</span><input name="over" type="number" step="10" value="${fmm(c.over)}"></label>
+    <label class="drow"><span>Pingadeira: telha passa da 1ª e da última terça — calha e cume (mm)</span><input name="over" type="number" step="10" value="${fmm(c.over)}"></label>
     <label class="drow"><span>Telha passa das tesouras das pontas (mm)</span><input name="lat" type="number" step="10" value="${fmm(c.lat)}"></label>
     <label class="drow"><span>Madeira da terça</span><select name="mat">${woods.map(m=>`<option value="${m.id}" ${m===tm?'selected':''}>${esc(m.name)} ${fmm(Math.min(m.b,m.h))}×${fmm(Math.max(m.b,m.h))}</option>`).join('')}</select></label>
     <label class="drow"><span>Comprimento máximo da terça (mm)</span><input name="lmax" type="number" step="100" value="${fmm(c.lmax)}"></label>
@@ -982,10 +982,10 @@ function makeRoof(h,RL,c){
   const supOf=new Map(),ordR=[...lay.keys()].sort((a,b)=>fitAll.get(b).R-fitAll.get(a).R),FL=[],mains=new Map();
   S.pieces.forEach(p=>{if(p.roof===roofKey&&p.sup&&mat(p.mat).kind==='tile'&&p.rreg&&!lay.has(p.rreg))p.sup.forEach(v=>FL.push(v));});
   const near=(pool,lo,hi,pref)=>{let b=null;pool.forEach(v=>{if(v>=lo-1e-6&&v<=hi+1e-6&&(b===null||Math.abs(v-pref)<Math.abs(b-pref)))b=v;});return b;};
-  // 1ª terça fixa (calha); apoio do recobrimento corre dentro do recobrimento; última terça pode descer até 10 cm do topo da telha
+  // 1ª terça fixa (calha); apoio do recobrimento corre dentro do recobrimento; última terça com a mesma pingadeira da calha no topo da telha (pode descer mais 5 cm para alinhar)
   const mainsOf=(id,pool)=>{const f=fitAll.get(id),tl=lay.get(id).tiles,ms=[f.sP0];
     for(let i=0;i+1<tl.length;i++){const o0=tl[i+1][0],o1=tl[i][1],m=(o0+o1)/2,v=near(pool,Math.min(m,o0+pt/2+1),Math.max(m,o1-pt/2-1),m);ms.push(v===null?m:v);}
-    const e=tl[tl.length-1][1]-pt/2,v=near(pool,e-10,e,e);ms.push(v===null?e:v);return ms;};
+    const e=tl[tl.length-1][1]-c.over-pt/2,v=near(pool,e-5,e,e);ms.push(v===null?e:v);return ms;};
   const FL0=FL.slice();ordR.forEach(id=>{const ms=mainsOf(id,FL);ms.forEach(v=>FL.push(v));mains.set(id,ms);});
   // 2ª passada: cada pano revê os seus apoios olhando os apoios já definidos dos outros panos
   ordR.forEach(id=>{const pool=FL0.concat(...[...mains].filter(([k])=>k!==id).map(([,v])=>v));mains.set(id,mainsOf(id,pool));});
