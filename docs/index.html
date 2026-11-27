@@ -258,7 +258,8 @@ td.n{text-align:right;font-family:var(--font-num)}
       <code>MA</code><span>MATCHPROP</span>
       <code>TELHA</code><span>Paginação das telhas de fibrocimento na água clicada; gera as terças nos apoios (calha, recobrimentos, vão máximo)</span>
       <code>TLM</code><span>Telha a telha: digita o comprimento de cada telha da fiada (U desfaz) e depois replica as fiadas nos panos escolhidos</span>
-      <code>TLH</code><span>Mostrar / ocultar as telhas</span>
+      <code>CUM</code><span>Cumeeiras: acha os cumes onde duas águas de telha se encontram e lança as peças (normal, universal ou articulada) sobre as telhas</span>
+      <code>TLH</code><span>Mostrar / ocultar as telhas e cumeeiras</span>
       <code>ENGASTE</code><span>Ponta da tesoura embutida na parede: bolsão cortado e preenchido com concreto (2D, 3D e volume em m³)</span>
       <code>LINHAL</code><span>Tábua de pé contínua nos montantes: clique o montante, a 1ª tesoura (na altura do linhal) e a última; emendas sobre montantes, peças de até 2,5 m</span>
       <code>CONTRAV</code><span>Travamento em X entre montantes alinhados: clique o montante, depois a 1ª e a última tesoura de cada X e informe o comprimento da peça</span>
@@ -328,7 +329,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-16';
+const APP_VER='2026.11.27-17';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -373,7 +374,7 @@ const pairOf=p=>p&&p.pair?S.pieces.find(q=>q.pair===p.pair&&q.id!==p.id&&q.gid==
 // ---- visibilidade: plano ativo nas vistas Frontal/Lateral + isolar/ocultar ----
 let depthMode='faint',hiddenIds=new Set(),isoIds=null;const DEPTH_TOL=15; // ±150 mm em volta do plano ativo
 let showTiles=true;
-const shownHI=p=>!hiddenIds.has(p.id)&&(!isoIds||isoIds.has(p.id))&&(showTiles||mat(p.mat).kind!=='tile');
+const shownHI=p=>!hiddenIds.has(p.id)&&(!isoIds||isoIds.has(p.id))&&(showTiles||(mat(p.mat).kind!=='tile'&&mat(p.mat).kind!=='ridge'));
 function activePlane(){return toMod(parseFloat($('zbase').value)||0);}
 function inBand(p){if(VIEW==='top'||depthMode==='all')return true;const P=activePlane(),k=VIEW==='front'?1:0;let lo=1e9,hi=-1e9;corners3(p).forEach(W=>{if(W[k]<lo)lo=W[k];if(W[k]>hi)hi=W[k];});return hi>=P-DEPTH_TOL&&lo<=P+DEPTH_TOL;}
 function vis(p){if(!shownHI(p))return'off';
@@ -550,7 +551,7 @@ const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim
 const selPieces=()=>[...sel].map(byId).filter(Boolean);
 const same=p=>p.view===VIEW;
 
-const ALIAS={tlm:'tilem',telha1:'tilem',telhaatelha:'tilem',telha:'roof',tl:'roof',telhas:'roof',pag:'roof',tlh:'tiles',engaste:'engaste',eng:'engaste',lh:'linhal',linhal:'linhal',ctv:'contrav',contrav:'contrav',contraventamento:'contrav',travamento:'contrav',corte:'section',section:'section',sec:'section',l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
+const ALIAS={cum:'ridge',cumeeira:'ridge',cumeeiras:'ridge',tlm:'tilem',telha1:'tilem',telhaatelha:'tilem',telha:'roof',tl:'roof',telhas:'roof',pag:'roof',tlh:'tiles',engaste:'engaste',eng:'engaste',lh:'linhal',linhal:'linhal',ctv:'contrav',contrav:'contrav',contraventamento:'contrav',travamento:'contrav',corte:'section',section:'section',sec:'section',l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
   m:'move',move:'move',co:'copy',cp:'copy',copy:'copy',ro:'rotate',rotate:'rotate',mi:'mirror',mirror:'mirror',
   ar:'array',array:'array',o:'offset',offset:'offset',tr:'trim',trim:'trim',ex:'extend',extend:'extend',
   f:'fillet',fillet:'fillet',ma:'matchprop',matchprop:'matchprop',di:'dist',dist:'dist',
@@ -558,7 +559,7 @@ const ALIAS={tlm:'tilem',telha1:'tilem',telhaatelha:'tilem',telha:'roof',tl:'roo
   imp:'import',import:'import',exp:'export',export:'export',save:'save',qsave:'save',open:'open',
   iso:'isolate',isolar:'isolate',oc:'hide',ocultar:'hide',hide:'hide',mt:'showall',mostrar:'showall',unhide:'showall',unisolate:'showall',pp:'prodsheet',prancha:'prodsheet',em:'splice',emenda:'splice',br:'splice',ea:'autosplice',emendas:'autosplice',j:'weld',join:'weld',sd:'weld',soldar:'weld',rec:'rect',rectang:'rect',rect:'rect',cn:'plate',conector:'plate',g:'group',group:'group',xl:'grid',xline:'grid',grade:'grid',sc:'scale',scale:'scale',rm:'refmove',refmove:'refmove',rc:'refcal',refcal:'refcal',
   pla:'v-top',planta:'v-top',fr:'v-front',frontal:'v-front',la:'v-side',lateral:'v-side'};
-const NAME={tilem:'TELHA A TELHA',roof:'TELHA',tiles:'TELHAS',engaste:'ENGASTE',linhal:'LINHAL',contrav:'CONTRAV',section:'CORTE',line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
+const NAME={ridge:'CUMEEIRA',tilem:'TELHA A TELHA',roof:'TELHA',tiles:'TELHAS',engaste:'ENGASTE',linhal:'LINHAL',contrav:'CONTRAV',section:'CORTE',line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
   offset:'OFFSET',trim:'TRIM',extend:'EXTEND',fillet:'FILLET',matchprop:'MATCHPROP',dist:'DIST',erase:'ERASE',fit:'ENCAIXE',scale:'SCALE',grid:'XLINE',group:'TESOURA MATRIZ',isolate:'ISOLAR',hide:'OCULTAR',plate:'CONECTOR',rect:'RECTANG',weld:'SOLDAR',splice:'EMENDA',autosplice:'EMENDAS AUTOMÁTICAS',refmove:'REFMOVE',refcal:'REFCAL'};
 const NEEDSEL=['move','copy','rotate','mirror','array','erase','scale','group','isolate','hide','autosplice'];
 const NUMSTEP=['tmL','lhL','cvL','p2','dest','angle','dist','count','calv','factor','rnew','cn2','rc2','em1'];
@@ -621,6 +622,7 @@ function run(name){
   lastCmd=name;cmd={name,step:null};
   if(name==='line'||name==='pline'){const m0=mat(S.mat);if(m0.post||m0.plate){const m=S.mats.find(x=>!x.post&&!x.plate);S.mat=m.id;renderMats();}cmd.step='p1';cmd.pts=[];cmd.ids=[];}
   else if(name==='tiles'){cmd=null;toggleTiles();return;}
+  else if(name==='ridge'){cmd=null;refresh();askRidge();return;}
   else if(name==='tilem'){if(VIEW!=='front'){leaveCut();setView('front');renderCutTabs();cmd={name:'tilem'};}cmd.step='tm1';}
   else if(name==='roof'){if(VIEW!=='front'){leaveCut();setView('front');renderCutTabs();cmd={name:'roof'};}cmd.step='rf1';}
   else if(name==='engaste'){cmd=null;refresh();askEngaste();return;}
@@ -1016,7 +1018,7 @@ function makeRoof(h,RL,c){
   out.forEach(q=>q.roof=key);
   const ids=new Set(fits.filter(f=>lay.has(f.G.id)).map(f=>f.G.id));
   push();S.pieces=S.pieces.filter(p=>!(p.roof===key&&(p.terca||p.suporte||(mat(p.mat).kind==='tile'&&(ids.has(p.rreg)||!p.rreg||regenZ.some(z=>Math.abs(z-p.z)<1))))));out.forEach(q=>S.pieces.push({...q,id:S.nid++}));
-  const pr=rebuildPurlins(RL,key,c,regs,T,adj,tp);changed();
+  const pr=rebuildPurlins(RL,key,c,regs,T,adj,tp);if(S.ridgeCfg&&S.pieces.some(p=>mat(p.mat).kind==='ridge'))makeRidges(S.ridgeCfg,false,true);changed();
   const nt=out.length,deg=RL.ang*180/Math.PI;
   msg(`Telhado (${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°${regs.length>1?`, ${regs.length} panos`:''}): ${rep_.join(' · ')} = ${nt} telhas · ${pr.lines} linhas de terça (${pr.n} peças${pr.s?`, emendas a 45° com ${pr.s} suportes`:''})${nNotch?` · ${nNotch} telha${nNotch>1?'s':''} com recorte de canto na divisa dos panos`:''}. TLH oculta/mostra as telhas.${warn.length?' Atenção: '+[...new Set(warn)].join('; ')+'.':''}`,16000);
 }
@@ -1044,6 +1046,65 @@ function rebuildPurlins(RL,key,c,regs,T,adj,tp){const rot=tp.b>tp.h,pw=Math.max(
         const yj=Ys[j];if(sc){const L={ax:yj-10,ay:-C[1]-10,bx:yj+10,by:-C[1]+10};pc(cur-st,yj+pw/2,cc,L);cc=L;suporte(run[j]);}else{pc(cur,yj,null,null);cc=null;}cur=yj;}run=[];};
     T.forEach((t,i)=>{if(use[i]&&run.length&&!adj(run[run.length-1],t))flush();if(use[i])run.push(t);else flush();});flush();});
   return{lines:lines.length,n,s:ns};}
+
+// ---- CUMEEIRA: peça de fibrocimento sobre o encontro de duas águas; abas onduladas encaixadas nas ondas das telhas ----
+const RIDGE_ANG={n300:[5,10,15,20,25,30],n400:[10,15,20],uni:[],art:[]},RIDGE_NM={n300:'normal aba 300',n400:'normal aba 400',uni:'universal',art:'articulada'};
+function ridgeMat(c){const id='cum_'+c.tipo+(c.ang?'_'+c.ang:'')+'_'+c.esp;let m=S.mats.find(x=>x.id===id);
+  if(!m){m={id,name:`Cumeeira ${RIDGE_NM[c.tipo]}${c.ang?' '+c.ang+'°':''} fibrocimento ${c.esp} mm`,b:110,h:ONDA_H,esp:c.esp/10,len:0,color:'#b4bbbf',kind:'ridge'};S.mats.push(m);renderMats();}return m;}
+// pontos da cumeeira (vista frontal: u = x, v = −altura): ponta da aba esquerda, cumeeira, ponta da aba direita
+function ridgePts(p){const L=[p.x1,p.y1],R=[p.x2,p.y2],f=p.ap.f;return[L,[L[0]+(R[0]-L[0])*f,L[1]+(R[1]-L[1])*f+p.ap.dv],R];}
+function ridgeFp(p){const m=mat(p.mat),H=m.h,es=m.esp||.6,[L,A,R]=ridgePts(p),dn=H/2,up=H/2+es;
+  return[[L[0],L[1]+dn],[A[0],A[1]+dn],[R[0],R[1]+dn],[R[0],R[1]-up],[A[0],A[1]-up],[L[0],L[1]-up]];}
+function ridgeMesh(p,mt){const m=mat(p.mat),H=m.h,es=m.esp||.6,Wd=bwOf(p),pts=ridgePts(p).map(q=>[q[0],-q[1]]),pos=[],tri=(a,b,c)=>pos.push(...a,...b,...c),lp=[];
+  const N=Math.max(12,Math.round(Wd/ONDA_P*12)),hv=y=>H*(1-Math.cos(2*Math.PI*(y+Wd/2)/ONDA_P))/2-H/2;
+  [[pts[1],pts[0]],[pts[1],pts[2]]].forEach(([A,B])=>{const L=Math.hypot(B[0]-A[0],B[1]-A[1])||1,d=[(B[0]-A[0])/L,(B[1]-A[1])/L];let n=[-d[1],d[0]];if(n[1]<0)n=[-n[0],-n[1]];
+    const V=(s0,yy,dz)=>{const h=hv(yy)+dz;return[A[0]+d[0]*s0+n[0]*h,A[1]+d[1]*s0+n[1]*h,p.z+yy];};
+    for(let i=0;i<N;i++){const y0=-Wd/2+Wd*i/N,y1=-Wd/2+Wd*(i+1)/N;[[es,1],[0,-1]].forEach(([dz,sg])=>{const a=V(0,y0,dz),b2=V(L,y0,dz),c=V(L,y1,dz),e=V(0,y1,dz);if(sg>0){tri(a,b2,c);tri(a,c,e);}else{tri(a,c,b2);tri(a,e,c);}});}
+    const c=[[0,-Wd/2],[L,-Wd/2],[L,Wd/2],[0,Wd/2]].map(([sv,yy])=>V(sv,yy,es));[[0,1],[1,2],[2,3]].forEach(([i,j])=>lp.push(...c[i],...c[j]));});
+  // dorso arredondado da cumeeira, por cima do encontro das abas
+  const A=pts[1],top=[A[0],A[1]+H/2+es];
+  {const a1=[A[0]-6,A[1]+H/2+es-1],a2=[A[0]+6,A[1]+H/2+es-1];const q=(P,yy)=>[P[0],P[1],p.z+yy];tri(q(a1,-Wd/2),q(top,-Wd/2),q(top,Wd/2));tri(q(a1,-Wd/2),q(top,Wd/2),q(a1,Wd/2));tri(q(top,-Wd/2),q(a2,-Wd/2),q(a2,Wd/2));tri(q(top,-Wd/2),q(a2,Wd/2),q(top,Wd/2));}
+  mt.side=THREE.DoubleSide;const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));geo.computeVertexNormals();const obj=new THREE.Mesh(geo,mt);
+  const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(lp,3));obj.add(new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0x6b7378,transparent:true,opacity:.7})));return obj;}
+async function askRidge(){const tiles=S.pieces.filter(p=>p.view==='front'&&mat(p.mat).kind==='tile');if(!tiles.length){msg('Pagine as telhas (TL) das duas águas antes das cumeeiras.',7000);return;}
+  const c=Object.assign({tipo:'n300',ang:10,aba:30,esp:mat(tiles[0].mat).esp?Math.round(mat(tiles[0].mat).esp*10):6,util:105,total:110},S.ridgeCfg||{});
+  const angs=t=>RIDGE_ANG[t].length?RIDGE_ANG[t]:[];
+  const f=await ask('Cumeeiras',`<p>O programa acha os cumes onde duas águas de telha se encontram e lança as cumeeiras por cima das telhas, de ponta a ponta do cume. Rodar de novo refaz todas.</p>
+    <label class="drow"><span>Tipo</span><select name="tipo">${Object.keys(RIDGE_NM).map(k=>`<option value="${k}" ${c.tipo===k?'selected':''}>${RIDGE_NM[k][0].toUpperCase()+RIDGE_NM[k].slice(1)}</option>`).join('')}</select></label>
+    <label class="drow"><span>Ângulo da peça (normal: 5, 10, 15, 20, 25, 30°)</span><input name="ang" type="number" step="5" value="${c.ang||10}"></label>
+    <label class="drow"><span>Aba: do eixo do cume até a ponta, ao longo da água (mm)</span><input name="aba" type="number" step="10" value="${fmm(c.aba)}"></label>
+    <label class="drow"><span>Largura útil / total (mm)</span><span><input name="util" type="number" step="5" value="${fmm(c.util)}" style="width:70px"> / <input name="total" type="number" step="5" value="${fmm(c.total)}" style="width:70px"></span></label>
+    <label class="drow"><span>Espessura</span><select name="esp"><option value="6" ${c.esp==6?'selected':''}>6 mm</option><option value="8" ${c.esp==8?'selected':''}>8 mm</option></select></label>
+    <p class="hint">Catálogo Brasilit: cumeeira de 1,10 m com largura útil de 1,05 m; normal com aba 300 (5° a 30°) ou 400 (10°, 15°, 20°); universal de 10° a 30°; articulada de 10° a 45°. Fixação: 2 em cada aba, nas cristas da 2ª e 6ª ondas.</p>`,'Lançar cumeeiras');
+  if(!f)return;const num=k=>toMod(parseFloat(String(f[k]).replace(',','.'))||0);
+  const cfg={tipo:f.tipo,ang:(f.tipo==='n300'||f.tipo==='n400')?(+f.ang||10):0,aba:num('aba')||30,util:num('util')||105,total:num('total')||110,esp:+f.esp};S.ridgeCfg=cfg;makeRidges(cfg,true);}
+// acha os cumes: pontas de cima das telhas de duas águas opostas que se encontram (vista frontal)
+function findRidges(){const cl=[];
+  S.pieces.forEach(p=>{if(p.view!=='front'||mat(p.mat).kind!=='tile')return;const A=[p.x1,-p.y1],B=[p.x2,-p.y2],top=A[1]>B[1]?A:B,bot=top===A?B:A,L=Math.hypot(top[0]-bot[0],top[1]-bot[1]);if(L<1||Math.abs(top[0]-bot[0])<1)return;
+    const d=[(top[0]-bot[0])/L,(top[1]-bot[1])/L],dir=Math.sign(d[0]),w=bwOf(p)/2,es=mat(p.mat).esp||.6;
+    let C=cl.find(C=>C.dir===dir&&C.key===(p.roof||'')&&Math.abs(C.top[0]-top[0])<6&&Math.abs(C.top[1]-top[1])<6);
+    if(!C){C={dir,key:p.roof||'',top,d,es,iv:[]};cl.push(C);}C.iv.push([p.z-w,p.z+w]);});
+  cl.forEach(C=>{C.iv.sort((a,b)=>a[0]-b[0]);const mg=[];C.iv.forEach(q=>{const l=mg[mg.length-1];if(l&&q[0]<=l[1]+1)l[1]=Math.max(l[1],q[1]);else mg.push(q.slice());});C.iv=mg;});
+  // só valem as pontas que são a ponta de cima da água (a telha mais alta da coluna)
+  const out=[];cl.filter(C=>C.dir>0).forEach(C1=>cl.filter(C=>C.dir<0).forEach(C2=>{const gx=C2.top[0]-C1.top[0];if(gx<-5||gx>60||Math.abs(C2.top[1]-C1.top[1])>30)return;
+    const iv=[];C1.iv.forEach(a=>C2.iv.forEach(b=>{const lo=Math.max(a[0],b[0]),hi=Math.min(a[1],b[1]);if(hi-lo>20)iv.push([lo,hi]);}));if(!iv.length)return;
+    // encontro das abas: linhas das telhas subidas da espessura (a aba encaixa por cima)
+    const ln=C=>{let n=[-C.d[1],C.d[0]];if(n[1]<0)n=[-n[0],-n[1]];return{p:[C.top[0]+n[0]*C.es,C.top[1]+n[1]*C.es],d:C.d};},l1=ln(C1),l2=ln(C2);
+    const den=l1.d[0]*l2.d[1]-l1.d[1]*l2.d[0];if(Math.abs(den)<1e-6)return;const t=((l2.p[0]-l1.p[0])*l2.d[1]-(l2.p[1]-l1.p[1])*l2.d[0])/den,apex=[l1.p[0]+l1.d[0]*t,l1.p[1]+l1.d[1]*t];
+    out.push({C1,C2,apex,iv,a1:Math.atan2(C1.d[1],Math.abs(C1.d[0]))*180/Math.PI,a2:Math.atan2(C2.d[1],Math.abs(C2.d[0]))*180/Math.PI});}));
+  return out;}
+function makeRidges(c,talk,inner){const R=findRidges();
+  if(!R.length){if(inner)S.pieces=S.pieces.filter(p=>mat(p.mat).kind!=='ridge');if(talk)msg('Não achei cume com telhas das duas águas se encontrando. Pagine as duas águas (TL); água única com platibanda leva rufo, não cumeeira.',9000);return 0;}
+  const rm=ridgeMat(c),out=[],warn=[];let n=0;
+  R.forEach(G=>{const L=[G.apex[0]-G.C1.d[0]*c.aba,G.apex[1]-G.C1.d[1]*c.aba],Rr=[G.apex[0]-G.C2.d[0]*c.aba,G.apex[1]-G.C2.d[1]*c.aba],f=(G.apex[0]-L[0])/((Rr[0]-L[0])||1),vl=-L[1]+(-Rr[1]+L[1])*f,dv=-G.apex[1]-vl;
+    const ang=(G.a1+G.a2)/2;if(c.ang&&Math.abs(ang-c.ang)>2.5)warn.push(`água com ${(Math.round(ang*10)/10).toLocaleString('pt-BR')}° e cumeeira de ${c.ang}°`);
+    if(c.tipo==='uni'&&(ang<9.5||ang>30.5))warn.push('universal vai de 10° a 30°');if(c.tipo==='art'&&(ang<9.5||ang>45.5))warn.push('articulada vai de 10° a 45°');
+    G.iv.forEach(([y0,y1])=>{const cs=[];for(let y=y0+c.total/2;y+c.total/2<=y1+.01;y+=c.util)cs.push(y);if(!cs.length||cs[cs.length-1]+c.total/2<y1-.01)cs.push(Math.max(y0+c.total/2,y1-c.total/2));
+      cs.forEach(yc=>{out.push({view:'front',mat:rm.id,rot:false,x1:L[0],y1:-L[1],x2:Rr[0],y2:-Rr[1],z:yc,z2:yc,bw:c.total,ap:{f,dv},cume:1});n++;});});});
+  if(!inner)push();S.pieces=S.pieces.filter(p=>mat(p.mat).kind!=='ridge');out.forEach(q=>S.pieces.push({...q,id:S.nid++}));if(!inner)changed();
+  if(talk){const m_=R.reduce((a,G)=>a+G.iv.reduce((b,q)=>b+q[1]-q[0],0),0);
+    msg(`Cumeeiras: ${n} peça${n>1?'s':''} (${rm.name}) em ${R.length} cume${R.length>1?'s':''}, ${fmt(m_/100)} m de cume; aba de ${fmm(c.aba)} mm sobre as telhas. Fixação: 2 em cada aba (cristas da 2ª e 6ª ondas). TLH oculta/mostra.${warn.length?' Atenção: '+[...new Set(warn)].join('; ')+'.':''}`,14000);}
+  return n;}
 // ---- ENGASTE: ponta da tesoura embutida na parede — a parede é cortada e o bolsão preenchido com concreto ----
 const engVol=p=>Math.max(0,Math.abs(polyArea(p.poly))*(p.th||0)-(p.vwood||0))/1e6; // m³ (cm³ → m³)
 function engMat(){let m=S.mats.find(x=>x.kind==='fill');if(!m){m={id:'conc_eng',name:'Concreto (engaste)',b:100,h:10,len:0,color:'#a7aaa6',kind:'fill'};S.mats.push(m);renderMats();}return m;}
@@ -1393,6 +1454,7 @@ function tileOutline(p){const A=[p.x1,-p.y1],B=[p.x2,-p.y2],L=Math.hypot(B[0]-A[
   const st=tileStrips(p,L).filter(q=>q.b-q.a>.01),lo=[],hi=[];st.forEach(q=>{lo.push(W3(q.a,q.y0),W3(q.a,q.y1));hi.push(W3(q.b,q.y0),W3(q.b,q.y1));});return lo.concat(hi.reverse());}
 function footprint(p){
   const m=mat(p.mat);if(p.poly)return p.poly.map(q=>[q[0],q[1]]);
+  if(m.kind==='ridge'&&p.ap)return ridgeFp(p);
   if(p.post){const hb=(p.rot?m.h:m.b)/2,hh=(p.rot?m.b:m.h)/2;return[[p.x1-hb,p.y1-hh],[p.x1+hb,p.y1-hh],[p.x1+hb,p.y1+hh],[p.x1-hb,p.y1+hh]];}
   const w=dims(p).w/2,dx=p.x2-p.x1,dy=p.y2-p.y1,L=Math.hypot(dx,dy)||1,nx=-dy/L*w,ny=dx/L*w;
   let r=[[p.x1+nx,p.y1+ny],[p.x2+nx,p.y2+ny],[p.x2-nx,p.y2-ny],[p.x1-nx,p.y1-ny]];
@@ -1481,7 +1543,7 @@ function draw(){
     const fill=m.kind==='fill';ctx.globalAlpha=own||fill?.85:.28;ctx.fillStyle=m.color;ctx.fill();ctx.globalAlpha=own||fill?1:.55;
     const lk=!s&&!hv&&p.gid&&selG.has(p.gid);
     if(!joined||s||hv||lk){ctx.lineWidth=s||hv?2.2:lk?1.6:1;ctx.strokeStyle=s||hv?selC:lk?css('--accent'):'rgba(40,25,10,.75)';if((hv&&!s)||lk)ctx.setLineDash([5,3]);ctx.stroke();ctx.setLineDash([]);}ctx.globalAlpha=1;
-    if(m.kind==='tile'){if(VIEW==='top'){const fp=fp0,xs=fp.map(q=>q[0]),ys=fp.map(q=>q[1]),x0=Math.min(...xs),x1=Math.max(...xs),Wd=bwOf(p);ctx.save();poly(fp);ctx.clip();ctx.strokeStyle='rgba(70,78,84,.55)';ctx.lineWidth=1;ctx.beginPath();
+    if(m.kind==='tile'||m.kind==='ridge'){if(VIEW==='top'){const fp=fp0,xs=fp.map(q=>q[0]),ys=fp.map(q=>q[1]),x0=Math.min(...xs),x1=Math.max(...xs),Wd=bwOf(p);ctx.save();poly(fp);ctx.clip();ctx.strokeStyle='rgba(70,78,84,.55)';ctx.lineWidth=1;ctx.beginPath();
         for(let k=0;k<Math.round(Wd/ONDA_P);k++){const y=p.z-Wd/2+ONDA_P*(k+.5);ctx.moveTo(...W2S(x0,y));ctx.lineTo(...W2S(x1,y));}ctx.stroke();ctx.restore();}}
     else if(isBuild(p)){const fp=fp0;ctx.save();poly(fp);ctx.clip();const wall=mat(p.mat).kind==='wall';ctx.strokeStyle=wall?'rgba(120,70,40,.45)':'rgba(70,80,90,.45)';ctx.fillStyle='rgba(70,80,90,.5)';ctx.lineWidth=1;
       const xs=fp.map(q=>W2S(...q)),x0=Math.min(...xs.map(q=>q[0])),x1=Math.max(...xs.map(q=>q[0])),y0=Math.min(...xs.map(q=>q[1])),y1=Math.max(...xs.map(q=>q[1]));
@@ -1971,7 +2033,7 @@ let cutText='',cutRows=[],cutPlates=[],cutBuilds=[],cutTot={ml:0,vol:0};
 function cutlist(){
   const g={},gp={};S.pieces.forEach(p=>{if(isPlate(p)){const m=mat(p.mat);(gp[m.id]=gp[m.id]||{m,q:0}).q++;}});
   cutPlates=Object.values(gp).sort((a,b)=>a.m.name.localeCompare(b.m.name));
-  const gb={};S.pieces.forEach(p=>{if(!isBuild(p))return;const m=mat(p.mat);if(p.poly&&m.kind==='fill'){const v=engVol(p),k=m.id+'|V';const r=(gb[k]=gb[k]||{m,L:0,bw:0,vol:0,q:0});r.vol+=v;r.q++;return;}if(p.poly){const a=Math.abs(polyArea(p.poly))/1e4,k=m.id+'|A|'+Math.round(a*100);(gb[k]=gb[k]||{m,L:0,bw:0,area:a,q:0}).q++;return;}const L=Math.round(len3(p)),bw=bwOf(p),k=m.id+'|'+L+'|'+Math.round(bw*10);(gb[k]=gb[k]||{m,L,bw,q:0}).q++;});
+  const gb={};S.pieces.forEach(p=>{if(!isBuild(p))return;const m=mat(p.mat);if(m.kind==='ridge'){const k=m.id+'|R';(gb[k]=gb[k]||{m,L:0,bw:bwOf(p),q:0,un:1}).q++;return;}if(p.poly&&m.kind==='fill'){const v=engVol(p),k=m.id+'|V';const r=(gb[k]=gb[k]||{m,L:0,bw:0,vol:0,q:0});r.vol+=v;r.q++;return;}if(p.poly){const a=Math.abs(polyArea(p.poly))/1e4,k=m.id+'|A|'+Math.round(a*100);(gb[k]=gb[k]||{m,L:0,bw:0,area:a,q:0}).q++;return;}const L=Math.round(len3(p)),bw=bwOf(p),k=m.id+'|'+L+'|'+Math.round(bw*10);(gb[k]=gb[k]||{m,L,bw,q:0}).q++;});
   cutBuilds=Object.values(gb).sort((a,b)=>a.m.name.localeCompare(b.m.name)||b.L-a.L);
   S.pieces.forEach(p=>{if(isPlate(p)||isBuild(p))return;const m=mat(p.mat),L=Math.round(len3(p));const enc=!!(p.cut1||p.cut2),k=m.id+'|'+L+'|'+enc;(g[k]=g[k]||{m,L,q:0,enc}).q++;});
   const rows=Object.values(g).sort((a,b)=>a.m.name.localeCompare(b.m.name)||b.L-a.L);
@@ -1980,10 +2042,10 @@ function cutlist(){
   cutRows=rows;cutTot={ml,vol};
   $('cut').innerHTML='<tr><th>Peça</th><th>Seção mm</th><th style="text-align:right">Compr. mm</th><th style="text-align:right">Qtd</th></tr>'+
     (rows.length?rows.map(r=>`<tr><td><span class="sw" style="display:inline-block;vertical-align:-2px;background:${r.m.color}"></span> ${r.m.name}${r.enc?' <small>(encaixe)</small>':''}</td><td class="n">${fmm(r.m.b)}×${fmm(r.m.h)}</td><td class="n">${fmm(r.L)}</td><td class="n">${r.q}</td></tr>`).join(''):'<tr><td colspan="4" class="empty">Nenhuma peça desenhada.</td></tr>')+
-    (cutBuilds.length?`<tr><th colspan="4" style="padding-top:10px">Paredes e lajes (fora da madeira) · esp. × larg./alt.</th></tr>`+cutBuilds.map(r=>`<tr><td><span class="sw" style="display:inline-block;vertical-align:-2px;background:${r.m.color}"></span> ${esc(r.m.name)}</td><td class="n">${r.vol!=null?'—':fmm(r.m.h)+(r.area!=null?'':'×'+fmm(r.bw))}</td><td class="n">${r.vol!=null?r.vol.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' m³':r.area!=null?r.area.toLocaleString('pt-BR',{maximumFractionDigits:2})+' m²':fmm(r.L)}</td><td class="n">${r.q}</td></tr>`).join(''):'')+
+    (cutBuilds.length?`<tr><th colspan="4" style="padding-top:10px">Paredes e lajes (fora da madeira) · esp. × larg./alt.</th></tr>`+cutBuilds.map(r=>`<tr><td><span class="sw" style="display:inline-block;vertical-align:-2px;background:${r.m.color}"></span> ${esc(r.m.name)}</td><td class="n">${r.vol!=null?'—':fmm(r.m.h)+(r.area!=null?'':'×'+fmm(r.bw))}</td><td class="n">${r.vol!=null?r.vol.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' m³':r.area!=null?r.area.toLocaleString('pt-BR',{maximumFractionDigits:2})+' m²':r.un?'peça':fmm(r.L)}</td><td class="n">${r.q}</td></tr>`).join(''):'')+
     (cutPlates.length?`<tr><th colspan="4" style="padding-top:10px">Conectores Gang-Nail (largura × compr.)</th></tr>`+cutPlates.map(r=>`<tr><td><span class="sw" style="display:inline-block;vertical-align:-2px;background:${r.m.color}"></span> ${esc(r.m.name)}</td><td class="n">${fmm(r.m.h)}×${fmm(r.m.len)}</td><td class="n">aço ${fmmT(r.m.b)}</td><td class="n">${r.q}</td></tr>`).join(''):'');
   $('tot').innerHTML=`<span>Peças de madeira</span><b>${S.pieces.filter(p=>!isPlate(p)&&!isBuild(p)).length}</b>${cutPlates.length?`<span>Chapas Gang-Nail</span><b>${cutPlates.reduce((a,r)=>a+r.q,0)}</b>`:''}<span>Metro linear (cortadas)</span><b>${fmt(ml)} m</b><span>Volume de madeira</span><b>${vol.toLocaleString('pt-BR',{maximumFractionDigits:3})} m³</b>`;
-  cutText='Peça\tSeção (mm)\tComprimento (mm)\tQtd\n'+rows.map(r=>`${r.m.name}${r.enc?' (encaixe)':''}\t${fmm(r.m.b)}x${fmm(r.m.h)}\t${fmm(r.L)}\t${r.q}`).join('\n')+(cutBuilds.length?'\n\nParede/laje\tEsp. x Larg. (mm)\tComprimento (mm)\tQtd\n'+cutBuilds.map(r=>`${r.m.name}\t${fmm(r.m.h)}x${fmm(r.bw)}\t${fmm(r.L)}\t${r.q}`).join('\n'):'')+(cutPlates.length?'\n\nConector\tLargura x Compr. (mm)\tAço (mm)\tQtd\n'+cutPlates.map(r=>`${r.m.name}\t${fmm(r.m.h)}x${fmm(r.m.len)}\t${fmmT(r.m.b)}\t${r.q}`).join('\n'):'')+`\n\nVolume total\t${vol.toLocaleString('pt-BR',{maximumFractionDigits:3})} m³`;
+  cutText='Peça\tSeção (mm)\tComprimento (mm)\tQtd\n'+rows.map(r=>`${r.m.name}${r.enc?' (encaixe)':''}\t${fmm(r.m.b)}x${fmm(r.m.h)}\t${fmm(r.L)}\t${r.q}`).join('\n')+(cutBuilds.length?'\n\nParede/laje\tEsp. x Larg. (mm)\tComprimento (mm)\tQtd\n'+cutBuilds.map(r=>`${r.m.name}\t${fmm(r.m.h)}x${fmm(r.bw)}\t${r.un?'peça':fmm(r.L)}\t${r.q}`).join('\n'):'')+(cutPlates.length?'\n\nConector\tLargura x Compr. (mm)\tAço (mm)\tQtd\n'+cutPlates.map(r=>`${r.m.name}\t${fmm(r.m.h)}x${fmm(r.m.len)}\t${fmmT(r.m.b)}\t${r.q}`).join('\n'):'')+`\n\nVolume total\t${vol.toLocaleString('pt-BR',{maximumFractionDigits:3})} m³`;
 }
 $('copy').onclick=()=>{try{navigator.clipboard.writeText(cutText).then(()=>msg('Lista copiada. Cole no Excel ou na proposta.'),()=>msg('Não foi possível copiar neste navegador.'));}catch(e){msg('Não foi possível copiar neste navegador.');}};
 
@@ -2089,6 +2151,7 @@ function mesh(p){
     for(let i=0;i<n;i++){const j=(i+1)%n;tri(Bv[i],Tv[j],Bv[j]);tri(Bv[i],Tv[i],Tv[j]);}
     mt.side=THREE.DoubleSide;geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));geo.computeVertexNormals();obj=new THREE.Mesh(geo,mt);
   }
+  else if(mat(p.mat).kind==='ridge'&&p.ap){return ridgeMesh(p,mt);}
   else if(mat(p.mat).kind==='tile'&&p.view==='front'){
     // telha ondulada: ondas correndo no sentido da rampa; vale apoiado na terça, crista = altura da onda
     const m=mat(p.mat),H=m.h,es=m.esp||.6,Wd=bwOf(p),A=[p.x1,-p.y1],B=[p.x2,-p.y2],L=Math.hypot(B[0]-A[0],B[1]-A[1])||1,d=[(B[0]-A[0])/L,(B[1]-A[1])/L];let n=[-d[1],d[0]];if(n[1]<0)n=[-n[0],-n[1]];
@@ -2850,7 +2913,7 @@ async function buildPDF(){
   head(y);y+=5.5;let limit=cy-14;
   const rows=[...cutRows,...cutBuilds.map(r=>({...r,bld:true})),...cutPlates.map(r=>({...r,plate:true}))];
   rows.forEach(r=>{if(y>limit){doc.addPage('a3','landscape');frame();y=M+12;limit=PH-M-10;head(y);y+=5.5;}
-    doc.text(r.m.name+(r.enc?' (encaixe)':'')+(r.plate?` (aço ${fmmT(r.m.b)} mm)`:''),cols[0],y);doc.text(r.bld?`${fmm(r.m.h)}x${fmm(r.bw)}`:fmtS(r.m),cols[1],y,{align:'right'});doc.text(r.plate?'—':fmm(r.L),cols[2],y,{align:'right'});doc.text(String(r.q),cols[3],y,{align:'right'});y+=4.6;});
+    doc.text(r.m.name+(r.enc?' (encaixe)':'')+(r.plate?` (aço ${fmmT(r.m.b)} mm)`:''),cols[0],y);doc.text(r.bld?`${fmm(r.m.h)}x${fmm(r.bw)}`:fmtS(r.m),cols[1],y,{align:'right'});doc.text(r.plate||r.un?'—':fmm(r.L),cols[2],y,{align:'right'});doc.text(String(r.q),cols[3],y,{align:'right'});y+=4.6;});
   if(y>limit-12){doc.addPage('a3','landscape');frame();y=M+12;}
   doc.setDrawColor(150);doc.line(cols[0],y-2.5,cols[3],y-2.5);y+=2;doc.setFont('helvetica','bold');
   doc.text(`Peças de madeira: ${S.pieces.filter(p=>!isPlate(p)&&!isBuild(p)).length}${cutPlates.length?' · chapas: '+cutPlates.reduce((a,r)=>a+r.q,0):''}`,cols[0],y);doc.text(`Metro linear: ${fmt(cutTot.ml)} m`,cols[0],y+5);doc.text(`Volume: ${cutTot.vol.toLocaleString('pt-BR',{maximumFractionDigits:3})} m³`,cols[0],y+10);
