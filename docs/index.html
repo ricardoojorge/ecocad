@@ -332,7 +332,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-9';
+const APP_VER='2026.11.27-10';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -898,8 +898,8 @@ async function askRoof(h){const RL=roofLine(h),deg=RL.ang*180/Math.PI,c=Object.a
     <label class="drow"><span>Comprimentos de telha (automático, mm)</span><input name="lens" value="${esc(c.lens)}"></label>
     <label class="drow"><span>Recobrimento longitudinal (mm)</span><input name="rec" type="number" step="10" value="${fmm(c.rec||rAuto||25)}"></label>
     <label class="drow"><span>Calha: da ponta baixa do banzo até a 1ª terça (mm, na horizontal)</span><input name="cal" type="number" step="10" value="${fmm(c.cal)}"></label>
-    <label class="drow"><span>Ponta alta: do fim do banzo até a última terça (mm)</span><input name="top" type="number" step="10" value="${fmm(c.top)}"></label>
-    <label class="drow"><span>Telha passa da 1ª e da última terça (mm)</span><input name="over" type="number" step="10" value="${fmm(c.over)}"></label>
+    <label class="drow"><span>Folga da telha no cume / platibanda (0 a 50 mm)</span><input name="top" type="number" min="0" max="50" step="5" value="${fmm(Math.min(5,c.top||0))}"></label>
+    <label class="drow"><span>Telha passa da 1ª terça, lado da calha (mm)</span><input name="over" type="number" step="10" value="${fmm(c.over)}"></label>
     <label class="drow"><span>Telha passa das tesouras das pontas (mm)</span><input name="lat" type="number" step="10" value="${fmm(c.lat)}"></label>
     <label class="drow"><span>Madeira da terça</span><select name="mat">${woods.map(m=>`<option value="${m.id}" ${m===tm?'selected':''}>${esc(m.name)} ${fmm(Math.min(m.b,m.h))}×${fmm(Math.max(m.b,m.h))}</option>`).join('')}</select></label>
     <label class="drow"><span>Comprimento máximo da terça (mm)</span><input name="lmax" type="number" step="100" value="${fmm(c.lmax)}"></label>
@@ -929,11 +929,13 @@ function makeRoof(h,RL,c){
   const mine=regs.find(G=>G.ts.some(t=>Math.abs(t.y-h.z)<.6)),work=manual.length?(mine?[mine]:[]):regs;if(!work.length){msg('A tesoura clicada não está nesse plano.',6000);return;}
   const tm=tileMat(c.esp),P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off],out=[],tilt=Math.atan2(-RL.n[0],RL.n[1]),rep_=[],off=pw+tm.h/2;let nT=0,nL=0,nS=0;
   work.forEach(G=>{const ri=regs.indexOf(G),f0=G.ts[0],f1=G.ts[G.ts.length-1],pv=regs[ri-1],nx=regs[ri+1];
-    const sP0=G.lo+c.cal/ex+pt/2;let sPn=G.hi-c.top/ex-pt/2;if(sPn-sP0<10){rep_.push('trecho curto ignorado');return;}
-    const s0=sP0-pt/2-c.over;let F;
-    if(manual.length){const cov=manual.reduce((a,v)=>a+v,0)-(manual.length-1)*r;F={t:manual.slice(),ex:0};sPn=s0+cov-c.over-pt/2;
-      const pas=sPn+pt/2-G.hi;if(pas>.5)warn.push(`as fiadas passam ${fmm(pas)} mm da ponta alta do banzo`);else if(pas<-(c.top/ex+.5))warn.push(`as fiadas param ${fmm(-pas)} mm antes da ponta alta do banzo`);}
-    else{F=bestFiadas(sPn+pt/2+c.over-s0,lens,r);if(!F){rep_.push('sem combinação de telhas');return;}}
+    // ponta alta (cume / platibanda): a telha nunca passa do cume — encostada ou até 50 mm antes; a última terça fica embaixo da ponta da telha
+    const gapT=Math.min(5,Math.max(0,c.top||0)),sP0=G.lo+c.cal/ex+pt/2,sEndT=G.hi-gapT/ex;if(sEndT-pt-sP0<10){rep_.push('trecho curto ignorado');return;}
+    const s0=sP0-pt/2-c.over;let F,sEnd;
+    if(manual.length){const cov=manual.reduce((a,v)=>a+v,0)-(manual.length-1)*r;F={t:manual.slice(),ex:0};sEnd=s0+cov;
+      const pas=sEnd-G.hi;if(pas>.05)warn.push(`a telha passa ${fmm(pas)} mm do cume (não pode)`);else if(-pas>5.05)warn.push(`a telha para ${fmm(-pas)} mm antes do cume (máx. 50 mm)`);}
+    else{F=bestFiadas(sEndT-s0,lens,r);sEnd=sEndT;if(!F){rep_.push('sem combinação de telhas');return;}}
+    const sPn=sEnd-pt/2;
     const n=F.t.length,rEff=n>1&&!manual.length?r+F.ex/(n-1):r,cut=n===1&&!manual.length?F.ex:0,tiles=[];let a=s0;F.t.forEach((L,i)=>{const len=i===0&&cut?L-cut:L;tiles.push([a,a+len]);a=a+len-rEff;});
     // apoios: 1ª terça, meio de cada recobrimento, última terça, e intermediárias onde o vão passa do máximo
     const sup=[sP0];for(let i=0;i+1<tiles.length;i++)sup.push((tiles[i+1][0]+tiles[i][1])/2);sup.push(sPn);
