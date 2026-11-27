@@ -332,7 +332,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-8';
+const APP_VER='2026.11.27-9';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -927,7 +927,7 @@ function makeRoof(h,RL,c){
   regs.forEach(G=>G.id=Math.round(G.ts[0].y)+'|'+Math.round(G.lo)+'|'+Math.round(G.hi));
   // manual: só a região da tesoura clicada (cada região com as suas fiadas)
   const mine=regs.find(G=>G.ts.some(t=>Math.abs(t.y-h.z)<.6)),work=manual.length?(mine?[mine]:[]):regs;if(!work.length){msg('A tesoura clicada não está nesse plano.',6000);return;}
-  const tm=tileMat(c.esp),P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off],out=[],tilt=Math.atan2(-RL.n[0],RL.n[1]),rep_=[],off=pw+tm.h/2;let nT=0,nL=0;
+  const tm=tileMat(c.esp),P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off],out=[],tilt=Math.atan2(-RL.n[0],RL.n[1]),rep_=[],off=pw+tm.h/2;let nT=0,nL=0,nS=0;
   work.forEach(G=>{const ri=regs.indexOf(G),f0=G.ts[0],f1=G.ts[G.ts.length-1],pv=regs[ri-1],nx=regs[ri+1];
     const sP0=G.lo+c.cal/ex+pt/2;let sPn=G.hi-c.top/ex-pt/2;if(sPn-sP0<10){rep_.push('trecho curto ignorado');return;}
     const s0=sP0-pt/2-c.over;let F;
@@ -945,15 +945,21 @@ function makeRoof(h,RL,c){
     // terças desta região: correm pelas tesouras dela e seguem até a 1ª tesoura da região seguinte (o vão entre as duas fica apoiado)
     const TL=G.ts.slice();if(nx&&adj(f1,nx.ts[0]))TL.push(nx.ts[0]);
     const lines=[];all.sort((x,y)=>x-y).forEach(v=>{if(!lines.length||v-lines[lines.length-1]>=pt)lines.push(v);});nL+=lines.length;
-    lines.forEach(sv=>{const C=P(sv,pw/2),pc=(y0,y1)=>{out.push({view:'side',mat:tp.id,rot,x1:y0,y1:-C[1],x2:y1,y2:-C[1],z:C[0],z2:C[0],tilt,terca:1,rreg:G.id});nT++;};let run=[];
-      const flush=()=>{if(!run.length)return;const Ys=run.map(t=>t.y),y0=Ys[0]-run[0].t/2,y1=Ys[Ys.length-1]+run[run.length-1].t/2;let cur=y0,g=0;
-        while(g++<500){if(y1-cur<=c.lmax+1e-6){pc(cur,y1);break;}let j=-1;Ys.forEach((y,k)=>{if(y>cur+1&&y-cur<=c.lmax+1e-6)j=k;});if(j<0){pc(cur,y1);break;}pc(cur,Ys[j]);cur=Ys[j];}run=[];};
+    // emenda: terça com mais de 5 cm de altura → corte a 45° sobre a tesoura + "suporte" (a sobra do corte) pregado ao lado do banzo (prego 18x36)
+    const sc=pw>5;
+    lines.forEach(sv=>{const C=P(sv,pw/2),pc=(y0,y1,c1,c2)=>{out.push({view:'side',mat:tp.id,rot,x1:y0,y1:-C[1],x2:y1,y2:-C[1],z:C[0],z2:C[0],tilt,terca:1,rreg:G.id,...(c1?{cut1:c1}:{}),...(c2?{cut2:c2}:{})});nT++;};
+      const suporte=(t)=>{const sf=sv-pt/2,A0=P(sf-pw,pw/2),A1=P(sf,pw/2),D0=P(sf-pw,0),D1=P(sf,pw);
+        out.push({view:'front',mat:tp.id,rot:tp.b>tp.h,x1:A0[0],y1:-A0[1],x2:A1[0],y2:-A1[1],z:t.y+t.t/2+pt/2,z2:t.y+t.t/2+pt/2,cut1:{ax:D0[0],ay:-D0[1],bx:D1[0],by:-D1[1]},suporte:1,rreg:G.id});nS++;};let run=[];
+      const flush=()=>{if(!run.length)return;const Ys=run.map(t=>t.y),y0=Ys[0]-run[0].t/2,y1=Ys[Ys.length-1]+run[run.length-1].t/2;let cur=y0,cc=null,g=0;
+        while(g++<500){const st=cc?pw/2:0;if(y1-(cur-st)<=c.lmax+1e-6){pc(cur-st,y1,cc,null);break;}
+          let j=-1;Ys.forEach((y,k)=>{if(y>cur+1&&y+(sc?pw/2:0)-(cur-st)<=c.lmax+1e-6)j=k;});if(j<0){pc(cur-st,y1,cc,null);break;}
+          const yj=Ys[j];if(sc){const L={ax:yj-10,ay:-C[1]-10,bx:yj+10,by:-C[1]+10};pc(cur-st,yj+pw/2,cc,L);cc=L;suporte(run[j]);}else{pc(cur,yj,null,null);cc=null;}cur=yj;}run=[];};
       TL.forEach(t=>{const ok=sv-pt/2>=t.lo-.5&&sv+pt/2<=t.hi+.5;if(ok&&run.length&&!adj(run[run.length-1],t))flush();if(ok)run.push(t);else flush();});flush();});
     rep_.push(`${n} fiada${n>1?'s':''} (${F.t.map(v=>fmm(v)).join(' + ')}${cut?`, 1ª cortada ${fmm(cut)}`:''}; recobr. ${fmm(rEff)}) × ${cols.length} colunas`);});
   const key='roof|'+Math.round(RL.lo[0]*RL.n[0]+RL.lo[1]*RL.n[1])+'|'+Math.round(RL.ang*1000);out.forEach(q=>q.roof=key);
   const ids=new Set(work.map(G=>G.id));push();S.pieces=S.pieces.filter(p=>!(p.roof===key&&(!manual.length||ids.has(p.rreg)||!p.rreg)));out.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
-  const nt=out.filter(q=>q.view==='front').length,deg=RL.ang*180/Math.PI;
-  msg(`Telhado (${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°${manual.length?', fiadas manuais nas tesouras iguais à clicada':`, ${T.length} tesouras${regs.length>1?`, ${regs.length} regiões`:''}`}): ${rep_.join(' · ')} = ${nt} telhas · ${nL} linhas de terça (${nT} peças). TLH oculta/mostra as telhas.${warn.length?' Atenção: '+[...new Set(warn)].join('; ')+'.':''}`,16000);
+  const nt=out.filter(q=>q.view==='front'&&!q.suporte).length,deg=RL.ang*180/Math.PI;
+  msg(`Telhado (${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°${manual.length?', fiadas manuais nas tesouras iguais à clicada':`, ${T.length} tesouras${regs.length>1?`, ${regs.length} regiões`:''}`}): ${rep_.join(' · ')} = ${nt} telhas · ${nL} linhas de terça (${nT} peças${nS?`, emendas a 45° com ${nS} suportes`:''}). TLH oculta/mostra as telhas.${warn.length?' Atenção: '+[...new Set(warn)].join('; ')+'.':''}`,16000);
 }
 // ---- ENGASTE: ponta da tesoura embutida na parede — a parede é cortada e o bolsão preenchido com concreto ----
 const engVol=p=>Math.max(0,Math.abs(polyArea(p.poly))*(p.th||0)-(p.vwood||0))/1e6; // m³ (cm³ → m³)
