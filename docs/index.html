@@ -329,7 +329,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-4';
+const APP_VER='2026.11.27-5';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -1252,6 +1252,14 @@ function ghosts(){
   if(n==='post'){return[{view:'top',mat:S.mat,x1:mouse.x,y1:mouse.y,x2:mouse.x,y2:mouse.y,z:0,len:mat(S.mat).len||270,post:true,rot:false}];}
   return[];
 }
+// contorno do desenho: o concreto do engaste, nas vistas de elevação, ganha bordas de cima e de baixo irregulares (parede quebrada à mão)
+const jagRnd=(a,i)=>{const x=Math.sin(a*12.9898+i*78.233)*43758.5453;return x-Math.floor(x);};
+function drawShape(p){const f=shape2(p);if(!p.poly||mat(p.mat).kind!=='fill'||VIEW==='top')return f;
+  const xs=f.map(q=>q[0]),vs=f.map(q=>q[1]),x0=Math.min(...xs),x1=Math.max(...xs),v0=Math.min(...vs),v1=Math.max(...vs),W=x1-x0,H=v1-v0;if(W<.5||H<.5)return f;
+  const amp=Math.min(2.2,H*.12),n=Math.max(4,Math.round(W/2.2)),seed=(typeof p.id==='number'?p.id:1)+.37;
+  const edge=(v,sgn,off)=>{const pts=[];for(let i=0;i<=n;i++){const t=i/n,r=jagRnd(seed,i+off),r2=jagRnd(seed,i+off+50);
+      let d=(r-.35)*amp;if(i===0||i===n)d=0;if(r2>.78)d+=amp*.9;pts.push([x0+W*t+(i&&i<n?(r2-.5)*W/n*.5:0),v+sgn*d]);}return pts;};
+  const top=edge(v0,-1,0),bot=edge(v1,1,100).reverse();return[...top,...bot];}
 function buildOutlines(L){
   if(!L.length)return;const P=L.map(p=>({k:mat(p.mat).kind,f:footprint(p)}));
   ctx.strokeStyle='rgba(40,25,10,.75)';ctx.lineWidth=1;ctx.beginPath();
@@ -1280,11 +1288,11 @@ function draw(){
   const selG=new Set(selPieces().map(p=>p.gid).filter(g=>g&&S.groups[g]));
   const drawOne=(p,joined)=>{
     const vv=vis(p);if(vv==='off')return;if(vv==='faint'){poly(shape2(p));ctx.globalAlpha=.1;ctx.fillStyle=mat(p.mat).color;ctx.fill();ctx.globalAlpha=.18;ctx.strokeStyle=css('--muted');ctx.lineWidth=1;ctx.stroke();ctx.globalAlpha=1;return;}
-    const m=mat(p.mat),s=sel.has(p.id),hv=hover===p.id,own=same(p);poly(shape2(p));
+    const m=mat(p.mat),s=sel.has(p.id),hv=hover===p.id,own=same(p),fp0=drawShape(p);poly(fp0);
     const fill=m.kind==='fill';ctx.globalAlpha=own||fill?.85:.28;ctx.fillStyle=m.color;ctx.fill();ctx.globalAlpha=own||fill?1:.55;
     const lk=!s&&!hv&&p.gid&&selG.has(p.gid);
     if(!joined||s||hv||lk){ctx.lineWidth=s||hv?2.2:lk?1.6:1;ctx.strokeStyle=s||hv?selC:lk?css('--accent'):'rgba(40,25,10,.75)';if((hv&&!s)||lk)ctx.setLineDash([5,3]);ctx.stroke();ctx.setLineDash([]);}ctx.globalAlpha=1;
-    if(isBuild(p)){const fp=shape2(p);ctx.save();poly(fp);ctx.clip();const wall=mat(p.mat).kind==='wall';ctx.strokeStyle=wall?'rgba(120,70,40,.45)':'rgba(70,80,90,.45)';ctx.fillStyle='rgba(70,80,90,.5)';ctx.lineWidth=1;
+    if(isBuild(p)){const fp=fp0;ctx.save();poly(fp);ctx.clip();const wall=mat(p.mat).kind==='wall';ctx.strokeStyle=wall?'rgba(120,70,40,.45)':'rgba(70,80,90,.45)';ctx.fillStyle='rgba(70,80,90,.5)';ctx.lineWidth=1;
       const xs=fp.map(q=>W2S(...q)),x0=Math.min(...xs.map(q=>q[0])),x1=Math.max(...xs.map(q=>q[0])),y0=Math.min(...xs.map(q=>q[1])),y1=Math.max(...xs.map(q=>q[1]));
       const fam=st=>{ctx.beginPath();for(let k=Math.floor((x0+y0)/st)*st;k<=x1+y1;k+=st){ctx.moveTo(k-y1,y1);ctx.lineTo(k-y0,y0);}ctx.stroke();};
       if(wall)fam(8);
