@@ -328,7 +328,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-2';
+const APP_VER='2026.11.27-3';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -867,21 +867,27 @@ function placeX(A,B,L){const g=xGeom(A,B,L);if(!g||g.err){msg(g?g.err:'Não foi 
 function lhGeom(A,B,zc0,Lmax){const ck='lh|'+A.p.id+'|'+B.p.id+'|'+zc0.toFixed(1)+'|'+Lmax+'|'+S.mat;if(cmd&&cmd._xg&&ck in cmd._xg)return cmd._xg[ck];
   const r=(()=>{const q={view:'side',mat:S.mat,rot:xRot()},d=dims(q),bw=d.w,bt=d.t,T=montLine(A),y0=Math.min(A.yc,B.yc),y1=Math.max(A.yc,B.yc),Ms=T.filter(t=>t.yc>=y0-.5&&t.yc<=y1+.5);
     if(Ms.length<2)return{err:'Não achei os montantes entre essas tesouras.'};
-    // altura livre (fora de diagonais e conectores) em todos os montantes, o mais perto possível do clique — preferindo subir
-    const free=(sd,zc)=>Ms.every(M=>{if(zc-bw/2<M.zlo||zc+bw/2>M.zhi)return false;return!mBlocked(M,sd,bt).some(([u,v])=>zc+bw/2>u&&zc-bw/2<v);});
-    let zc=null,sd=1;for(let dz=0;dz<=200&&zc==null;dz+=.5)for(const z of dz?[zc0+dz,zc0-dz]:[zc0])for(const s2 of[1,-1]){if(zc==null&&free(s2,z)){zc=z;sd=s2;}}
-    if(zc==null)return{err:'Não há altura livre em todos os montantes para o linhal.'};
-    // se já houver tábua (ex.: X) nessa face, o linhal vai por fora dela
     const xm=Ms.reduce((a,M)=>a+M.xm,0)/Ms.length,wm=Math.max(...Ms.map(M=>M.wm)),tm=Math.max(...Ms.map(M=>M.tm));
-    let off=wm/2;S.pieces.forEach(p=>{if(p.view!=='side'||p.post||isPlate(p))return;const pd=dims(p),o=(p.z-xm)*sd;if(o<=0||o-pd.t/2>wm/2+.5)return;
-      const pu0=Math.min(p.x1,p.x2),pu1=Math.max(p.x1,p.x2);if(pu1<y0||pu0>y1)return;off=Math.max(off,o+pd.t/2);});
-    const plane=xm+sd*(off+bt/2),Ys=Ms.map(M=>M.yc),ys=Ys[0]-tm/2,ye=Ys[Ys.length-1]+tm/2,seg=[];let cur=ys,g=0;
-    while(g++<500){if(ye-cur<=Lmax+1e-6){seg.push([cur,ye]);break;}let j=-1;Ys.forEach((y,k)=>{if(y>cur+1&&y-cur<=Lmax+1e-6)j=k;});
-      if(j<0)return{err:`Há um vão entre montantes maior que ${fmm(Lmax)} mm.`};seg.push([cur,Ys[j]]);cur=Ys[j];}
-    return{zc,sd,plane,seg,pieces:seg.map(([a,b])=>({view:'side',mat:S.mat,rot:xRot(),x1:a,y1:-zc,x2:b,y2:-zc,z:plane,z2:plane}))};})();
+    // tábuas já pregadas nessa face do montante (ex.: X) também ocupam altura
+    const boardsAt=(M,sd)=>{const out=[];S.pieces.forEach(p=>{if(p.view!=='side'||p.post||isPlate(p))return;const pd=dims(p),o=(p.z-M.xm)*sd;if(o<=0||o-pd.t/2>M.wm/2+.5)return;
+        const u0=Math.min(p.x1,p.x2),u1=Math.max(p.x1,p.x2);if(M.yc+M.tm/2<u0||M.yc-M.tm/2>u1)return;const du=p.x2-p.x1,dv=p.y2-p.y1,L=Math.hypot(du,dv)||1,c=Math.abs(du)/L||1e-6;
+        const zz=[M.yc-M.tm/2,M.yc+M.tm/2].map(u=>-(p.y1+dv*Math.max(0,Math.min(1,(u-p.x1)/(du||1e-9)))));out.push([Math.min(...zz)-pd.w/2/c-.5,Math.max(...zz)+pd.w/2/c+.5]);});return out;};
+    const blk=new Map(),B_=(M,sd)=>{const k=M.p.id+'|'+sd;if(!blk.has(k))blk.set(k,[...mBlocked(M,sd,bt),...boardsAt(M,sd)]);return blk.get(k);};
+    const bandFree=(M,sd,z0,z1)=>z0>=M.zlo&&z1<=M.zhi&&!B_(M,sd).some(([u,v])=>z1>u&&z0<v);
+    // divisão em tábuas ≤ Lmax: cada tábua vai de face a face do montante; na emenda as duas tábuas ficam sobrepostas no mesmo montante, uma acima da outra
+    const Ys=Ms.map(M=>M.yc),ys=Ys[0]-tm/2,ye=Ys[Ys.length-1]+tm/2,seg=[];let cur=ys,g=0;
+    while(g++<500){if(ye-cur<=Lmax+1e-6){seg.push([cur,ye]);break;}let j=-1;Ys.forEach((y,k)=>{if(y-tm/2>cur+1&&y+tm/2-cur<=Lmax+1e-6)j=k;});
+      if(j<0||Ys[j]+tm/2>=ye-1e-6)return{err:`Há um vão entre montantes maior que ${fmm(Lmax)} mm.`};seg.push([cur,Ys[j]+tm/2]);cur=Ys[j]-tm/2;}
+    // tábuas alternadas: pares na altura z, ímpares logo acima (z + largura da tábua)
+    const zOf=i=>i%2?bw:0,inSeg=(M,sgm)=>M.yc+M.tm/2>sgm[0]+.1&&M.yc-M.tm/2<sgm[1]-.1;
+    const free=(sd,zc)=>seg.every((sg,i)=>Ms.filter(M=>inSeg(M,sg)).every(M=>bandFree(M,sd,zc+zOf(i)-bw/2,zc+zOf(i)+bw/2)));
+    let zc=null,sd=1;for(let dz=0;dz<=200&&zc==null;dz+=.5)for(const z of dz?[zc0+dz,zc0-dz]:[zc0])for(const s2 of[1,-1]){if(zc==null&&free(s2,z)){zc=z;sd=s2;}}
+    if(zc==null)return{err:'Não há altura livre em todos os montantes para o linhal (diagonais, conectores ou X ocupam tudo).'};
+    const plane=xm+sd*(wm/2+bt/2);
+    return{zc,sd,plane,seg,pieces:seg.map(([a,b],i)=>({view:'side',mat:S.mat,rot:xRot(),x1:a,y1:-(zc+zOf(i)),x2:b,y2:-(zc+zOf(i)),z:plane,z2:plane}))};})();
   if(cmd)(cmd._xg=cmd._xg||{})[ck]=r;return r;}
 function placeLinhal(A,B,zc0,Lmax){const g=lhGeom(A,B,zc0,Lmax);if(g.err){msg(g.err,7000);return;}push();g.pieces.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
-  const moved=Math.abs(g.zc-zc0)>.25;msg(`Linhal criado: ${g.seg.length} tábua${g.seg.length>1?'s':''} (${g.seg.map(([a,b])=>fmm(b-a)).join(' + ')} mm), de pé, na altura ${fmm(g.zc)} mm${moved?' (ajustada para fugir de diagonal/conector)':''}. Próximo linhal ou Enter para sair.`,9000);
+  const moved=Math.abs(g.zc-zc0)>.25;msg(`Linhal criado: ${g.seg.length} tábua${g.seg.length>1?'s':''} (${g.seg.map(([a,b])=>fmm(b-a)).join(' + ')} mm), de pé, na altura ${fmm(g.zc)} mm${moved?' (ajustada para fugir de diagonal, conector ou X)':''}. Próximo linhal ou Enter para sair.`,9000);
   cmd.lastLH={A,B,zc:g.zc,L:Lmax};cmd.A=cmd.B=null;cmd._xg=null;cmd.step='lh1';sel.clear();typed='';refresh();}
 async function repeatLinhal(){const X=cmd&&cmd.lastLH;if(!X){msg('Crie um linhal primeiro.');return;}
   const T=montLine(X.A),ia0=T.findIndex(t=>t.p.id===X.A.p.id),ib0=T.findIndex(t=>t.p.id===X.B.p.id);if(ia0<0||ib0<0){msg('Não achei a linha de montantes deste linhal.');return;}
