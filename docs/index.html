@@ -262,6 +262,7 @@ td.n{text-align:right;font-family:var(--font-num)}
       <code>PP</code><span>Pranchas de produção (A4)</span>
       <code>MA</code><span>MATCHPROP</span>
       <code>TELHA</code><span>Paginação das telhas de fibrocimento na água clicada; gera as terças nos apoios (calha, recobrimentos, vão máximo)</span>
+      <code>TLM</code><span>Telha a telha: digita o comprimento de cada telha da fiada (U desfaz) e depois replica as fiadas nos panos escolhidos</span>
       <code>TLH</code><span>Mostrar / ocultar as telhas</span>
       <code>ENGASTE</code><span>Ponta da tesoura embutida na parede: bolsão cortado e preenchido com concreto (2D, 3D e volume em m³)</span>
       <code>LINHAL</code><span>Tábua de pé contínua nos montantes: clique o montante, a 1ª tesoura (na altura do linhal) e a última; emendas sobre montantes, peças de até 2,5 m</span>
@@ -332,7 +333,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-10';
+const APP_VER='2026.11.27-11';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -554,7 +555,7 @@ const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim
 const selPieces=()=>[...sel].map(byId).filter(Boolean);
 const same=p=>p.view===VIEW;
 
-const ALIAS={telha:'roof',tl:'roof',telhas:'roof',pag:'roof',tlh:'tiles',engaste:'engaste',eng:'engaste',lh:'linhal',linhal:'linhal',ctv:'contrav',contrav:'contrav',contraventamento:'contrav',travamento:'contrav',corte:'section',section:'section',sec:'section',l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
+const ALIAS={tlm:'tilem',telha1:'tilem',telhaatelha:'tilem',telha:'roof',tl:'roof',telhas:'roof',pag:'roof',tlh:'tiles',engaste:'engaste',eng:'engaste',lh:'linhal',linhal:'linhal',ctv:'contrav',contrav:'contrav',contraventamento:'contrav',travamento:'contrav',corte:'section',section:'section',sec:'section',l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
   m:'move',move:'move',co:'copy',cp:'copy',copy:'copy',ro:'rotate',rotate:'rotate',mi:'mirror',mirror:'mirror',
   ar:'array',array:'array',o:'offset',offset:'offset',tr:'trim',trim:'trim',ex:'extend',extend:'extend',
   f:'fillet',fillet:'fillet',ma:'matchprop',matchprop:'matchprop',di:'dist',dist:'dist',
@@ -562,10 +563,10 @@ const ALIAS={telha:'roof',tl:'roof',telhas:'roof',pag:'roof',tlh:'tiles',engaste
   imp:'import',import:'import',exp:'export',export:'export',save:'save',qsave:'save',open:'open',
   iso:'isolate',isolar:'isolate',oc:'hide',ocultar:'hide',hide:'hide',mt:'showall',mostrar:'showall',unhide:'showall',unisolate:'showall',pp:'prodsheet',prancha:'prodsheet',em:'splice',emenda:'splice',br:'splice',ea:'autosplice',emendas:'autosplice',j:'weld',join:'weld',sd:'weld',soldar:'weld',rec:'rect',rectang:'rect',rect:'rect',cn:'plate',conector:'plate',g:'group',group:'group',xl:'grid',xline:'grid',grade:'grid',sc:'scale',scale:'scale',rm:'refmove',refmove:'refmove',rc:'refcal',refcal:'refcal',
   pla:'v-top',planta:'v-top',fr:'v-front',frontal:'v-front',la:'v-side',lateral:'v-side'};
-const NAME={roof:'TELHA',tiles:'TELHAS',engaste:'ENGASTE',linhal:'LINHAL',contrav:'CONTRAV',section:'CORTE',line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
+const NAME={tilem:'TELHA A TELHA',roof:'TELHA',tiles:'TELHAS',engaste:'ENGASTE',linhal:'LINHAL',contrav:'CONTRAV',section:'CORTE',line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
   offset:'OFFSET',trim:'TRIM',extend:'EXTEND',fillet:'FILLET',matchprop:'MATCHPROP',dist:'DIST',erase:'ERASE',fit:'ENCAIXE',scale:'SCALE',grid:'XLINE',group:'TESOURA MATRIZ',isolate:'ISOLAR',hide:'OCULTAR',plate:'CONECTOR',rect:'RECTANG',weld:'SOLDAR',splice:'EMENDA',autosplice:'EMENDAS AUTOMÁTICAS',refmove:'REFMOVE',refcal:'REFCAL'};
 const NEEDSEL=['move','copy','rotate','mirror','array','erase','scale','group','isolate','hide','autosplice'];
-const NUMSTEP=['lhL','cvL','p2','dest','angle','dist','count','calv','factor','rnew','cn2','rc2','em1'];
+const NUMSTEP=['tmL','lhL','cvL','p2','dest','angle','dist','count','calv','factor','rnew','cn2','rc2','em1'];
 const PICKSTEPS=['pick','a','b','src','dst','main','sec','wa','wb','em1'];
 
 // ================= vistas =================
@@ -625,6 +626,7 @@ function run(name){
   lastCmd=name;cmd={name,step:null};
   if(name==='line'||name==='pline'){const m0=mat(S.mat);if(m0.post||m0.plate){const m=S.mats.find(x=>!x.post&&!x.plate);S.mat=m.id;renderMats();}cmd.step='p1';cmd.pts=[];cmd.ids=[];}
   else if(name==='tiles'){cmd=null;toggleTiles();return;}
+  else if(name==='tilem'){if(VIEW!=='front'){leaveCut();setView('front');renderCutTabs();cmd={name:'tilem'};}cmd.step='tm1';}
   else if(name==='roof'){if(VIEW!=='front'){leaveCut();setView('front');renderCutTabs();cmd={name:'roof'};}cmd.step='rf1';}
   else if(name==='engaste'){cmd=null;refresh();askEngaste();return;}
   else if(name==='linhal'){const m=mat(S.mat);if(m.post||m.plate||m.kind){msg('Escolha na biblioteca a madeira do linhal (tábua) e rode LINHAL de novo.',7000);cmd=null;refresh();return;}
@@ -708,13 +710,14 @@ function enter(){
   else if(st==='em1'){if(!typed){finish(false);return;}const h=hover!=null&&byId(hover);if(!canSplice(h)){msg('Passe o mouse sobre a peça e digite a distância.');return;}
     const t=spliceTyped(h,mouse,v*10);if(t==null){msg('Distância fora da peça.');typed='';refresh();return;}push();splitAt(h,t,spliceConn);typed='';changed();msg('Emenda criada.',3000);return;}
   else if(st==='rc1'){finish(false);}
+  else if(st==='tmL'){if(v!=null&&v>0){cmd.seq.push(v);cmd.lastL=v;typed='';refresh();return;}if(!cmd.seq.length){if(cmd.lastL){cmd.seq.push(cmd.lastL);refresh();}return;}finishTileM();return;}
   else if(st==='lhL'){placeLinhal(cmd.A,cmd.B,cmd.zc,v!=null&&v>0?Math.min(v,CV_LMAX):CV_LMAX);return;}
   else if(st==='cvL'){placeX(cmd.A,cmd.B,v!=null&&v>0?v:0);return;}
   else if(st==='count'){const n=Math.round(v??lastCount);if(n>=2){lastCount=n;cmd.count=n;cmd.step='base';}else msg('Informe 2 ou mais peças.');}
   else finish(false);
   typed='';refresh();
 }
-const LEN_STEPS=['lhL','cvL','p2','dest','dist','rnew','calv','em1'];
+const LEN_STEPS=['tmL','lhL','cvL','p2','dest','dist','rnew','calv','em1'];
 const typedVal=()=>{if(!typed)return null;const v=parseFloat(typed.replace(',','.'));if(isNaN(v))return null;return cmd&&LEN_STEPS.includes(cmd.step)?toMod(v):v;};
 
 // ---- geometria ----
@@ -875,7 +878,7 @@ function placeX(A,B,L){const g=xGeom(A,B,L);if(!g||g.err){msg(g?g.err:'Não foi 
   cmd.lastX={A,B,L};cmd.A=cmd.B=null;cmd._xg=null;cmd.step='cv1';sel.clear();typed='';refresh();}
 // ---- TELHADO: paginação de telhas de fibrocimento → terças nos apoios → camada de telhas que liga/desliga ----
 function toggleTiles(){showTiles=!showTiles;const b=$('tiles');if(b)b.classList.toggle('on',showTiles);refresh();msg(showTiles?'Telhas visíveis':'Telhas ocultas (TLH mostra de novo)');}
-const TILE_DEF={esp:6,util:85,total:110,lens:'1220, 1530, 1830, 2130, 2440, 3050, 3660',over:10,cal:300,top:0,lat:10,lmax:250};
+const TILE_DEF={esp:6,util:85,total:110,lens:'1220, 1530, 1830, 2130, 2440, 3050, 3660',over:10,cal:30,top:0,lat:10,lmax:250};
 const ONDA_H=5.1,ONDA_P=17.7; // telha ondulada: altura da onda 51 mm, passo 177 mm (6 ondas em 1,10 m)
 function tileMat(esp){const id='telha_fc'+esp;let m=S.mats.find(x=>x.id===id);if(!m){m={id,name:`Telha ondulada fibrocimento ${esp} mm`,b:110,h:ONDA_H,esp:esp/10,len:0,color:'#a9b0b4',kind:'tile'};S.mats.push(m);renderMats();}
   if(m.h<1){m.h=ONDA_H;m.esp=esp/10;m.name=`Telha ondulada fibrocimento ${esp} mm`;}return m;}
@@ -888,14 +891,15 @@ function roofLine(h){const same_=S.pieces.filter(p=>p.view==='front'&&Math.abs(p
   let n=[-e[1],e[0]];if(n[1]<0)n=[-n[0],-n[1]];return{lo,hi,L:Lr,e,n,ang:Math.atan2(Math.abs(e[1]),Math.abs(e[0]))};}
 function bestFiadas(R,lens,r){let best=null;const rec=(arr,start,sum)=>{const n=arr.length;if(n){const cov=sum-(n-1)*r;if(cov>=R-.01){const ex=cov-R;if(!best||ex<best.ex-.5||(Math.abs(ex-best.ex)<=.5&&n<best.t.length))best={t:arr.slice(),ex};return;}}if(n>=10)return;
     for(let i=start;i<lens.length;i++){arr.push(lens[i]);rec(arr,i,sum+lens[i]);arr.pop();}};rec([],0,0);if(best)best.t.sort((a,b)=>b-a);return best;}
-async function askRoof(h){const RL=roofLine(h),deg=RL.ang*180/Math.PI,c=Object.assign({},TILE_DEF,S.roofCfg||{});
+async function askRoof(h,inter){const RL=roofLine(h),deg=RL.ang*180/Math.PI,c=Object.assign({},TILE_DEF,S.roofCfg||{});
+  if(c.cal===300)c.cal=30; // valor padrão antigo errado (3 m de calha)
   const rAuto=deg>=15?14:deg>=10?20:deg>=5?25:null;
   const woods=S.mats.filter(m=>!m.kind&&!m.plate&&!m.post),tm=woods.find(m=>m.id===c.mat)||woods.find(m=>/ter[cç]a/i.test(m.name))||woods[0];
-  const f=await ask('Telhas e terças',`<p>Água com <b>${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°</b> de inclinação, banzo de ${fmm(RL.L)} mm. ${rAuto?'':'<b>Inclinação abaixo de 5°: abaixo do mínimo da telha ondulada.</b>'}</p>
+  const f=await ask(inter?'Telha a telha — parâmetros':'Telhas e terças',`<p>Água com <b>${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°</b> de inclinação, banzo de ${fmm(RL.L)} mm. ${rAuto?'':'<b>Inclinação abaixo de 5°: abaixo do mínimo da telha ondulada.</b>'}</p>
     <label class="drow"><span>Telha</span><select name="esp"><option value="6" ${c.esp==6?'selected':''}>Ondulada 6 mm (vão máx. 1.690)</option><option value="8" ${c.esp==8?'selected':''}>Ondulada 8 mm (vão máx. 1.990)</option></select></label>
     <label class="drow"><span>Largura útil / total (mm)</span><span><input name="util" type="number" step="5" value="${fmm(c.util)}" style="width:70px"> / <input name="total" type="number" step="5" value="${fmm(c.total)}" style="width:70px"></span></label>
-    <label class="drow"><span>Fiadas (mm, da calha para cima) — vazio = automático</span><input name="fia" placeholder="ex.: 2440, 2440, 1830" value="${esc(c.fia||'')}"></label>
-    <label class="drow"><span>Comprimentos de telha (automático, mm)</span><input name="lens" value="${esc(c.lens)}"></label>
+    ${inter?'':`<label class="drow"><span>Fiadas (mm, da calha para cima) — vazio = automático</span><input name="fia" placeholder="ex.: 2440, 2440, 1830" value="${esc(c.fia||'')}"></label>
+    <label class="drow"><span>Comprimentos de telha (automático, mm)</span><input name="lens" value="${esc(c.lens)}"></label>`}
     <label class="drow"><span>Recobrimento longitudinal (mm)</span><input name="rec" type="number" step="10" value="${fmm(c.rec||rAuto||25)}"></label>
     <label class="drow"><span>Calha: da ponta baixa do banzo até a 1ª terça (mm, na horizontal)</span><input name="cal" type="number" step="10" value="${fmm(c.cal)}"></label>
     <label class="drow"><span>Folga da telha no cume / platibanda (0 a 50 mm)</span><input name="top" type="number" min="0" max="50" step="5" value="${fmm(Math.min(5,c.top||0))}"></label>
@@ -903,10 +907,11 @@ async function askRoof(h){const RL=roofLine(h),deg=RL.ang*180/Math.PI,c=Object.a
     <label class="drow"><span>Telha passa das tesouras das pontas (mm)</span><input name="lat" type="number" step="10" value="${fmm(c.lat)}"></label>
     <label class="drow"><span>Madeira da terça</span><select name="mat">${woods.map(m=>`<option value="${m.id}" ${m===tm?'selected':''}>${esc(m.name)} ${fmm(Math.min(m.b,m.h))}×${fmm(Math.max(m.b,m.h))}</option>`).join('')}</select></label>
     <label class="drow"><span>Comprimento máximo da terça (mm)</span><input name="lmax" type="number" step="100" value="${fmm(c.lmax)}"></label>
-    <p class="hint">Recobrimento sugerido pela inclinação (catálogo Brasilit): 140 mm acima de 15°, 200 mm de 10° a 15°, 250 mm de 5° a 10°. Rodar de novo na mesma água refaz telhas e terças.</p>`,'Paginar');
+    <p class="hint">Recobrimento sugerido pela inclinação (catálogo Brasilit): 140 mm acima de 15°, 200 mm de 10° a 15°, 250 mm de 5° a 10°. Rodar de novo na mesma água refaz telhas e terças.</p>`,inter?'Começar':'Paginar');
   if(!f)return;const num=k=>toMod(parseFloat(String(f[k]).replace(',','.'))||0);
-  const cfg={esp:+f.esp,util:num('util'),total:num('total'),fia:String(f.fia||'').trim(),lens:String(f.lens),rec:num('rec'),cal:num('cal'),top:num('top'),over:num('over'),lat:num('lat'),mat:f.mat,lmax:num('lmax')||250};
-  S.roofCfg={...cfg,rec:cfg.rec===(rAuto||25)?0:cfg.rec};makeRoof(h,RL,cfg);}
+  const cfg={esp:+f.esp,util:num('util'),total:num('total'),fia:String(f.fia||'').trim(),lens:String(f.lens||c.lens),rec:num('rec'),cal:num('cal'),top:num('top'),over:num('over'),lat:num('lat'),mat:f.mat,lmax:num('lmax')||250};
+  S.roofCfg={...cfg,rec:cfg.rec===(rAuto||25)?0:cfg.rec};if(cfg.rec<=0)cfg.rec=rAuto||25;
+  if(inter){startTileM(h,RL,cfg);return;}makeRoof(h,RL,cfg);}
 // faixa do banzo superior de cada tesoura que fica no mesmo plano da água clicada (s = posição ao longo da rampa)
 function chordRanges(RL){const byY=new Map(),rx=RL.e[0],ry=-RL.e[1];
   const fl=p=>{const a=faceLine(p,1),b=faceLine(p,-1);return(a.ay+a.by)<(b.ay+b.by)?a:b;},dist=q=>(q[0]-RL.lo[0])*RL.n[0]+(-q[1]-RL.lo[1])*RL.n[1],sOf=q=>(q[0]-RL.lo[0])*RL.e[0]+(-q[1]-RL.lo[1])*RL.e[1];
@@ -914,6 +919,24 @@ function chordRanges(RL){const byY=new Map(),rx=RL.e[0],ry=-RL.e[1];
     const F=fl(p),A=[F.ax,F.ay],B=[F.bx,F.by];if(Math.abs(dist(A))>1.5||Math.abs(dist(B))>1.5)return;const k=Math.round(p.z*2)/2,r=byY.get(k)||{y:p.z,lo:1e9,hi:-1e9,t:dims(p).t};
     r.lo=Math.min(r.lo,sOf(A),sOf(B));r.hi=Math.max(r.hi,sOf(A),sOf(B));r.t=Math.max(r.t,dims(p).t);byY.set(k,r);});
   return[...byY.values()].sort((a,b)=>a.y-b.y);}
+// ---- TELHA A TELHA: coloca as telhas uma por uma na fiada do pano clicado; depois replica as fiadas onde quiser ----
+function roofRegions(RL){const T=chordRanges(RL);const gaps=T.slice(1).map((t,i)=>t.y-T[i].y).sort((a,b)=>a-b),sp=gaps.length?gaps[Math.floor(gaps.length/2)]:120,adj=(a,b)=>b.y-a.y<=sp*1.6;
+  const regs=[];T.forEach((t,i)=>{const R=regs[regs.length-1];if(R&&adj(T[i-1],t)&&Math.abs(R.lo-t.lo)<1&&Math.abs(R.hi-t.hi)<1)R.ts.push(t);else regs.push({lo:t.lo,hi:t.hi,ts:[t]});});
+  regs.forEach(G=>G.id=Math.round(G.ts[0].y)+'|'+Math.round(G.lo)+'|'+Math.round(G.hi));return{T,regs};}
+function startTileM(h,RL,c){const{regs}=roofRegions(RL),G=regs.find(G=>G.ts.some(t=>Math.abs(t.y-h.z)<.6));if(!G){msg('Não achei o pano dessa tesoura.');return;}
+  cmd={name:'tilem',step:'tmL',h,RL,c,G,seq:[],tm:true,lastL:null};typed='';
+  msg('Digite o comprimento de cada telha (mm) e Enter, de baixo para cima. A prévia aparece na tesoura clicada.',8000);refresh();}
+function tmState(){const{RL,c,G,seq}=cmd,tp=S.mats.find(m=>m.id===c.mat)||{b:6,h:12},pt=Math.min(tp.b,tp.h),ex=Math.abs(RL.e[0])||1e-6,r=c.rec||14;
+  const sP0=G.lo+c.cal/ex+pt/2,s0=sP0-pt/2-c.over,top=G.hi-Math.min(5,Math.max(0,c.top||0))/ex,cov=seq.length?seq.reduce((a,v)=>a+v,0)-(seq.length-1)*r:0;
+  return{s0,need:top-s0,cov,rem:top-s0-cov,r,pw:Math.max(tp.b,tp.h)};}
+function tmPieces(seq){const{RL,c,h}=cmd,t=tmState(),tm=tileMat(c.esp),off=t.pw+tm.h/2,P=(sv,o)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*o,RL.lo[1]+RL.e[1]*sv+RL.n[1]*o],out=[];let a=t.s0;
+  seq.forEach(L=>{const A=P(a,off),B=P(a+L,off);out.push({view:'front',mat:tm.id,rot:false,x1:A[0],y1:-A[1],x2:B[0],y2:-B[1],z:h.z,z2:h.z,bw:c.total});a+=L-t.r;});return out;}
+async function finishTileM(){const{RL,c,h,seq,G}=cmd,t=tmState(),{regs}=roofRegions(RL);finish(false);
+  const rows=regs.map((R,i)=>`<label class="dopt"><input type="checkbox" name="r${i}" ${R.id===G.id?'checked':''}><span>Pano ${i+1}: ${R.ts.length} tesoura${R.ts.length>1?'s':''} (banzo de ${fmm(R.hi-R.lo)} mm)${R.id===G.id?' — <b>este</b>':''}</span></label>`).join('');
+  const f=await ask('Replicar as fiadas',`<p>Fiadas montadas: <b>${seq.map(v=>fmm(v)).join(' + ')}</b> mm (recobrimento ${fmm(t.r)}) · ${t.rem>0.05?`ficou a ${fmm(t.rem)} mm do cume`:t.rem<-.05?`<b>passou ${fmm(-t.rem)} mm do cume</b>`:'fechou no cume'}.</p>
+    <p>Em quais panos usar estas fiadas? (as colunas de telha e as terças são geradas em cada um)</p>${rows}`,'Replicar e gerar terças');
+  if(!f)return;const only=new Set(regs.filter((R,i)=>f['r'+i]).map(R=>R.id));if(!only.size){msg('Nenhum pano escolhido.');return;}
+  makeRoof(h,RL,{...c,fia:seq.map(v=>fmm(v)).join(', '),only});}
 function makeRoof(h,RL,c){
   const tp=S.mats.find(m=>m.id===c.mat);if(!tp){msg('Escolha a madeira da terça.');return;}
   const rot=tp.b>tp.h,pw=Math.max(tp.b,tp.h),pt=Math.min(tp.b,tp.h),ex=Math.abs(RL.e[0])||1e-6,vmax=c.esp==8?199:169,r=c.rec||14;
@@ -926,7 +949,7 @@ function makeRoof(h,RL,c){
   const regs=[];T.forEach((t,i)=>{const R=regs[regs.length-1];if(R&&adj(T[i-1],t)&&Math.abs(R.lo-t.lo)<1&&Math.abs(R.hi-t.hi)<1)R.ts.push(t);else regs.push({lo:t.lo,hi:t.hi,ts:[t]});});
   regs.forEach(G=>G.id=Math.round(G.ts[0].y)+'|'+Math.round(G.lo)+'|'+Math.round(G.hi));
   // manual: só a região da tesoura clicada (cada região com as suas fiadas)
-  const mine=regs.find(G=>G.ts.some(t=>Math.abs(t.y-h.z)<.6)),work=manual.length?(mine?[mine]:[]):regs;if(!work.length){msg('A tesoura clicada não está nesse plano.',6000);return;}
+  const mine=regs.find(G=>G.ts.some(t=>Math.abs(t.y-h.z)<.6)),work=c.only?regs.filter(G=>c.only.has(G.id)):manual.length?(mine?[mine]:[]):regs;if(!work.length){msg('A tesoura clicada não está nesse plano.',6000);return;}
   const tm=tileMat(c.esp),P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off],out=[],tilt=Math.atan2(-RL.n[0],RL.n[1]),rep_=[],off=pw+tm.h/2;let nT=0,nL=0,nS=0;
   work.forEach(G=>{const ri=regs.indexOf(G),f0=G.ts[0],f1=G.ts[G.ts.length-1],pv=regs[ri-1],nx=regs[ri+1];
     // ponta alta (cume / platibanda): a telha nunca passa do cume — encostada ou até 50 mm antes; a última terça fica embaixo da ponta da telha
@@ -959,7 +982,7 @@ function makeRoof(h,RL,c){
       TL.forEach(t=>{const ok=sv-pt/2>=t.lo-.5&&sv+pt/2<=t.hi+.5;if(ok&&run.length&&!adj(run[run.length-1],t))flush();if(ok)run.push(t);else flush();});flush();});
     rep_.push(`${n} fiada${n>1?'s':''} (${F.t.map(v=>fmm(v)).join(' + ')}${cut?`, 1ª cortada ${fmm(cut)}`:''}; recobr. ${fmm(rEff)}) × ${cols.length} colunas`);});
   const key='roof|'+Math.round(RL.lo[0]*RL.n[0]+RL.lo[1]*RL.n[1])+'|'+Math.round(RL.ang*1000);out.forEach(q=>q.roof=key);
-  const ids=new Set(work.map(G=>G.id));push();S.pieces=S.pieces.filter(p=>!(p.roof===key&&(!manual.length||ids.has(p.rreg)||!p.rreg)));out.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
+  const ids=new Set(work.map(G=>G.id));push();S.pieces=S.pieces.filter(p=>!(p.roof===key&&(!(manual.length||c.only)||ids.has(p.rreg)||!p.rreg)));out.forEach(q=>S.pieces.push({...q,id:S.nid++}));changed();
   const nt=out.filter(q=>q.view==='front'&&!q.suporte).length,deg=RL.ang*180/Math.PI;
   msg(`Telhado (${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°${manual.length?', fiadas manuais nas tesouras iguais à clicada':`, ${T.length} tesouras${regs.length>1?`, ${regs.length} regiões`:''}`}): ${rep_.join(' · ')} = ${nt} telhas · ${nL} linhas de terça (${nT} peças${nS?`, emendas a 45° com ${nS} suportes`:''}). TLH oculta/mostra as telhas.${warn.length?' Atenção: '+[...new Set(warn)].join('; ')+'.':''}`,16000);
 }
@@ -1341,6 +1364,7 @@ function ghosts(){
   if(n==='scale'){const k=curScale();if(k){const f=sclFn(cmd.base,k);return list.filter(same).map(p=>tf(p,f));}}
   if(n==='offset'&&st==='side'){const t=byId(cmd.target);return t?[offP(t,mouse,lastOffset)]:[];}
   if((n==='line'||n==='pline')&&st==='p2'){const e=endPoint();return chainPieces([...cmd.pts,{x:e.x,y:e.y}],false,chainMiter()).slice(-2);}
+  if(n==='tilem'&&st==='tmL'&&cmd.tm){const v=typedVal();return tmPieces(v>0?[...cmd.seq,v]:cmd.seq);}
   if(n==='linhal'&&st==='lh2'){const B=pickMontante(mouse.x,mouse.y);if(B&&B.p.id!==cmd.A.p.id){const g=lhGeom(cmd.A,B,cmd.zc,CV_LMAX);if(!g.err)return g.pieces;}return[];}
   if(n==='linhal'&&st==='lhL'){const v=typedVal(),g=lhGeom(cmd.A,cmd.B,cmd.zc,v>0?Math.min(v,CV_LMAX):CV_LMAX);return g.err?[]:g.pieces;}
   if(n==='contrav'&&st==='cv2'){const B=pickMontante(mouse.x,mouse.y);if(B&&B.p.id!==cmd.A.p.id){const g=xGeom(cmd.A,B);if(g&&!g.err)return xPieces(cmd.A,B,g.Ldef);}return[];}
@@ -1601,6 +1625,8 @@ cv.addEventListener('pointerdown',e=>{
   if(st==='p1'){cmd.start=p;cmd.pts=[{x:p.x,y:p.y}];cmd.ids=[];cmd.step='p2';}
   else if(st==='p2')addLine(endPoint());
   else if(st==='sl1')placeSlab({x:raw.x,y:raw.y});
+  else if(st==='tm1'){const h=hit(wx,wy);if(!h||h.view!=='front'||isPlate(h)||mat(h.mat).kind||Math.abs(h.x2-h.x1)<1||Math.abs(h.y2-h.y1)<.5){msg('Clique no BANZO SUPERIOR (peça inclinada) do pano.');return;}
+    finish(false);askRoof(h,true);}
   else if(st==='rf1'){const h=hit(wx,wy);if(!h||h.view!=='front'||isPlate(h)||mat(h.mat).kind||Math.abs(h.x2-h.x1)<1||Math.abs(h.y2-h.y1)<.5){msg('Clique no BANZO SUPERIOR (peça inclinada) da água que vai receber as telhas.');return;}
     finish(false);askRoof(h);}
   else if(st==='lh0'){const h=hit(wx,wy);if(!h||!isMontante(h)){msg('Clique num MONTANTE (peça vertical) da tesoura.');return;}
@@ -1706,6 +1732,7 @@ window.addEventListener('keydown',e=>{
   if(cmd&&cmd.step==='cn2'&&!cmdBuf&&!typed&&e.key.toLowerCase()==='a'){const h=cmd.host;placePlate(Math.atan2(h.y2-h.y1,h.x2-h.x1));return;}
   if(cmd&&cmd.name==='grid'&&(cmd.step==='g1'||cmd.step==='g2')&&!cmdBuf&&!typed&&/^[hv]$/i.test(e.key)){const k=e.key.toLowerCase();cmd.gmode=cmd.gmode===k?null:k;cmd.step='g1';refresh();return;}
   if(cmd&&cmd.step==='factor'&&!cmdBuf&&!typed&&e.key.toLowerCase()==='r'){cmd.step='r1';refresh();return;}
+  if(cmd&&cmd.name==='tilem'&&cmd.step==='tmL'&&!cmdBuf&&!typed&&e.key.toLowerCase()==='u'){e.preventDefault();cmd.seq.pop();refresh();return;}
   if(cmd&&cmd.name==='contrav'&&cmd.step==='cv1'&&cmd.lastX&&!cmdBuf&&!typed&&e.key.toLowerCase()==='r'){e.preventDefault();repeatX();return;}
   if(cmd&&cmd.name==='linhal'&&cmd.step==='lh1'&&cmd.lastLH&&!cmdBuf&&!typed&&e.key.toLowerCase()==='r'){e.preventDefault();repeatLinhal();return;}
   if(cmd&&(cmd.name==='line'||cmd.name==='pline')&&(cmd.step==='p1'||cmd.step==='p2')&&!cmdBuf&&!typed){const k=e.key.toLowerCase();
@@ -1736,6 +1763,8 @@ function prompt(){
   const P={
     p1:`${n} ${m.name} ${m.kind?'esp. '+fmm(m.h):fmm(m.b)+'×'+fmm(m.h)} mm${m.kind==='wall'&&VIEW==='top'?' · altura '+fmm(wallH(m))+' [A]':''} · [J = alinhamento: ${JUST_NAME[lineJust]}] · Specify first point:`,
     p2:m.len?`${n} · Peça pronta de ${fmm(m.len)} mm — clique a direção · Enter encerra:`:`${n} · Specify next point or [comprimento + Enter] · [C = fechar, U = desfaz ponto, J = ${JUST_NAME[lineJust]}${m.kind==='wall'&&VIEW==='top'?', A = altura '+fmm(wallH(m)):''}]:`,
+    tm1:`${n} · Clique no BANZO SUPERIOR do pano (a parte baixa fica do lado da calha):`,
+    tmL:(()=>{const t=cmd&&cmd.tm&&tmState();if(!t)return n;const k=cmd.seq.length+1;return `${n} · Telha ${k} (de baixo para cima): comprimento em mm${cmd.lastL?` [Enter = ${fmm(cmd.lastL)}]`:''} · coberto ${fmm(t.cov)} de ${fmm(t.need)} mm · ${t.rem>0.05?`falta ${fmm(t.rem)} mm até o cume`:t.rem<-.05?`PASSOU ${fmm(-t.rem)} mm do cume`:'fechou no cume'} · U desfaz · ${cmd.seq.length?'Enter sem número = terminar e replicar':''}:`;})(),
     rf1:`${n} · Clique no BANZO SUPERIOR da água (a parte baixa fica do lado da calha):`,
     lh0:`${n} · Clique no MONTANTE que vai receber o linhal:`,
     lh1:`${n} ${m.name} ${fmm(m.b)}×${fmm(m.h)} · Clique no montante da PRIMEIRA tesoura, na altura do linhal${cmd&&cmd.lastLH?' · [R = repetir o último linhal ao longo da linha]':''} · Enter encerra:`,
