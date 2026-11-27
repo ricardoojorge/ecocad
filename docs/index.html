@@ -260,6 +260,7 @@ td.n{text-align:right;font-family:var(--font-num)}
       <code>EA</code><span>Emendas automáticas</span>
       <code>PP</code><span>Pranchas de produção (A4)</span>
       <code>MA</code><span>MATCHPROP</span>
+      <code>ENGASTE</code><span>Ponta da tesoura embutida na parede: bolsão cortado e preenchido com concreto (2D, 3D e volume em m³)</span>
       <code>LINHAL</code><span>Tábua de pé contínua nos montantes: clique o montante, a 1ª tesoura (na altura do linhal) e a última; emendas sobre montantes, peças de até 2,5 m</span>
       <code>CONTRAV</code><span>Travamento em X entre montantes alinhados: clique o montante, depois a 1ª e a última tesoura de cada X e informe o comprimento da peça</span>
       <code>CORTE</code><span>Linha de corte na planta: escolhe a parte e o lado que a vista frontal/lateral mostra</span>
@@ -328,7 +329,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-3';
+const APP_VER='2026.11.27-4';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -478,7 +479,7 @@ const BW_DEF=100; // largura padrão de parede/laje: 1000 mm
 const WALL_H_DEF=280; // altura padrão de parede desenhada na planta: 2800 mm
 const wallInPlan=p=>p.view==='top'&&mat(p.mat).kind==='wall';
 const bwOf=p=>{const m=mat(p.mat);return p.bw>0?p.bw:(wallInPlan(p)?WALL_H_DEF:(m.b>0?m.b:BW_DEF));};
-function dims(p){const m=mat(p.mat),B=m.kind?bwOf(p):m.b;if(wallInPlan(p))return p.rot?{w:B,t:m.h}:{w:m.h,t:B};if(p.view==='top')return p.rot?{w:m.h,t:B}:{w:B,t:m.h};return p.rot?{w:B,t:m.h}:{w:m.h,t:B};}
+function dims(p){const m=mat(p.mat),B=m.kind?bwOf(p):m.b;if(p.poly&&p.th>0)return{w:B,t:p.th};if(wallInPlan(p))return p.rot?{w:B,t:m.h}:{w:m.h,t:B};if(p.view==='top')return p.rot?{w:m.h,t:B}:{w:B,t:m.h};return p.rot?{w:B,t:m.h}:{w:m.h,t:B};}
 
 // ================= estado =================
 let ortho=true,snap=true,mouse={x:0,y:0,snapped:false},raw={x:0,y:0};
@@ -549,7 +550,7 @@ const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim
 const selPieces=()=>[...sel].map(byId).filter(Boolean);
 const same=p=>p.view===VIEW;
 
-const ALIAS={lh:'linhal',linhal:'linhal',ctv:'contrav',contrav:'contrav',contraventamento:'contrav',travamento:'contrav',corte:'section',section:'section',sec:'section',l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
+const ALIAS={engaste:'engaste',eng:'engaste',lh:'linhal',linhal:'linhal',ctv:'contrav',contrav:'contrav',contraventamento:'contrav',travamento:'contrav',corte:'section',section:'section',sec:'section',l:'line',line:'line',pl:'pline',pline:'pline',polyline:'pline',laje:'slab',lj:'slab',slab:'slab',pil:'post',post:'post',
   m:'move',move:'move',co:'copy',cp:'copy',copy:'copy',ro:'rotate',rotate:'rotate',mi:'mirror',mirror:'mirror',
   ar:'array',array:'array',o:'offset',offset:'offset',tr:'trim',trim:'trim',ex:'extend',extend:'extend',
   f:'fillet',fillet:'fillet',ma:'matchprop',matchprop:'matchprop',di:'dist',dist:'dist',
@@ -557,7 +558,7 @@ const ALIAS={lh:'linhal',linhal:'linhal',ctv:'contrav',contrav:'contrav',contrav
   imp:'import',import:'import',exp:'export',export:'export',save:'save',qsave:'save',open:'open',
   iso:'isolate',isolar:'isolate',oc:'hide',ocultar:'hide',hide:'hide',mt:'showall',mostrar:'showall',unhide:'showall',unisolate:'showall',pp:'prodsheet',prancha:'prodsheet',em:'splice',emenda:'splice',br:'splice',ea:'autosplice',emendas:'autosplice',j:'weld',join:'weld',sd:'weld',soldar:'weld',rec:'rect',rectang:'rect',rect:'rect',cn:'plate',conector:'plate',g:'group',group:'group',xl:'grid',xline:'grid',grade:'grid',sc:'scale',scale:'scale',rm:'refmove',refmove:'refmove',rc:'refcal',refcal:'refcal',
   pla:'v-top',planta:'v-top',fr:'v-front',frontal:'v-front',la:'v-side',lateral:'v-side'};
-const NAME={linhal:'LINHAL',contrav:'CONTRAV',section:'CORTE',line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
+const NAME={engaste:'ENGASTE',linhal:'LINHAL',contrav:'CONTRAV',section:'CORTE',line:'LINE',pline:'PLINE',slab:'LAJE',post:'PILAR',move:'MOVE',copy:'COPY',rotate:'ROTATE',mirror:'MIRROR',array:'ARRAY',
   offset:'OFFSET',trim:'TRIM',extend:'EXTEND',fillet:'FILLET',matchprop:'MATCHPROP',dist:'DIST',erase:'ERASE',fit:'ENCAIXE',scale:'SCALE',grid:'XLINE',group:'TESOURA MATRIZ',isolate:'ISOLAR',hide:'OCULTAR',plate:'CONECTOR',rect:'RECTANG',weld:'SOLDAR',splice:'EMENDA',autosplice:'EMENDAS AUTOMÁTICAS',refmove:'REFMOVE',refcal:'REFCAL'};
 const NEEDSEL=['move','copy','rotate','mirror','array','erase','scale','group','isolate','hide','autosplice'];
 const NUMSTEP=['lhL','cvL','p2','dest','angle','dist','count','calv','factor','rnew','cn2','rc2','em1'];
@@ -617,6 +618,7 @@ function run(name){
   if(name==='post'&&VIEW!=='top'){msg('Pilar é lançado na Planta. Nas vistas, desenhe com L e uma peça linear.');return;}
   lastCmd=name;cmd={name,step:null};
   if(name==='line'||name==='pline'){const m0=mat(S.mat);if(m0.post||m0.plate){const m=S.mats.find(x=>!x.post&&!x.plate);S.mat=m.id;renderMats();}cmd.step='p1';cmd.pts=[];cmd.ids=[];}
+  else if(name==='engaste'){cmd=null;refresh();askEngaste();return;}
   else if(name==='linhal'){const m=mat(S.mat);if(m.post||m.plate||m.kind){msg('Escolha na biblioteca a madeira do linhal (tábua) e rode LINHAL de novo.',7000);cmd=null;refresh();return;}
     if(VIEW==='top'){leaveCut();setView('front');renderCutTabs();cmd={name:'linhal'};}
     cmd.step=VIEW==='front'?'lh0':'lh1';}
@@ -863,6 +865,41 @@ function placeX(A,B,L){const g=xGeom(A,B,L);if(!g||g.err){msg(g?g.err:'Não foi 
   const ang=Math.round(Math.atan2(g.zhi-g.zlo,Math.abs(B.yc-A.yc))*180/Math.PI);
   msg(`X criado: 2 peças de ${fmm(L)} mm (inclinação ${ang}°), uma em cada face do montante, de ${fmm(g.zlo)} a ${fmm(g.zhi)} mm de altura. Próximo par de montantes ou Enter para sair.`,8000);
   cmd.lastX={A,B,L};cmd.A=cmd.B=null;cmd._xg=null;cmd.step='cv1';sel.clear();typed='';refresh();}
+// ---- ENGASTE: ponta da tesoura embutida na parede — a parede é cortada e o bolsão preenchido com concreto ----
+const engVol=p=>Math.max(0,Math.abs(polyArea(p.poly))*(p.th||0)-(p.vwood||0))/1e6; // m³ (cm³ → m³)
+function engMat(){let m=S.mats.find(x=>x.kind==='fill');if(!m){m={id:'conc_eng',name:'Concreto (engaste)',b:100,h:10,len:0,color:'#a7aaa6',kind:'fill'};S.mats.push(m);renderMats();}return m;}
+function stripPoly(f,a,b){f=clipPoly(f,{ax:a,ay:0,bx:a,by:1},[a+1,0]);f=clipPoly(f,{ax:b,ay:0,bx:b,by:1},[b-1,0]);return f.length&&!f.some(q=>q[0]<a-.01||q[0]>b+.01)?f:null;}
+function lineXs(poly,y){const xs=[];for(let i=0;i<poly.length;i++){const a=poly[i],c=poly[(i+1)%poly.length];if((a[1]-y)*(c[1]-y)<0||(a[1]===y&&c[1]!==y)){xs.push(a[0]+(c[0]-a[0])*(y-a[1])/(c[1]-a[1]));}}xs.sort((u,v)=>u-v);const out=[];for(let i=0;i+1<xs.length;i+=2)if(xs[i+1]-xs[i]>.1)out.push([xs[i],xs[i+1]]);return out;}
+async function askEngaste(){
+  const ns=selPieces().filter(p=>p.view==='front').length;
+  const f=await ask('Engaste das tesouras na parede',`<p>Onde a ponta da tesoura entra numa parede, a parede é cortada e o bolsão é preenchido com concreto. O programa acha sozinho esses pontos e desenha o concreto (aparece no 2D, no 3D e na lista em m³).</p>
+    <label class="drow"><span>Folga para cada lado da tesoura (mm)</span><input name="fl" type="number" min="0" step="5" value="${fmm(S.engCfg?S.engCfg.fl:3)}"></label>
+    <label class="drow"><span>Folga abaixo do banzo inferior (mm)</span><input name="fi" type="number" min="0" step="5" value="${fmm(S.engCfg?S.engCfg.fi:5)}"></label>
+    <label class="drow"><span>Folga acima do banzo superior (mm)</span><input name="fs" type="number" min="0" step="5" value="${fmm(S.engCfg?S.engCfg.fs:5)}"></label>
+    <label class="drow"><span>Folga além da ponta da tesoura (mm)</span><input name="fx" type="number" min="0" step="5" value="${fmm(S.engCfg?S.engCfg.fx:3)}"></label>
+    <label class="drow"><span>Tesouras</span><select name="sc"><option value="all">Todas que entram em parede</option>${ns?`<option value="sel">Só as selecionadas (${ns} peças)</option>`:''}</select></label>
+    <p class="hint">Rodar de novo refaz os engastes com as folgas novas (os antigos dessas tesouras são substituídos). O bolsão nunca passa da parede.</p>`,'Criar engastes');
+  if(!f)return;const num=k=>Math.max(0,toMod(parseFloat(String(f[k]).replace(',','.'))||0));S.engCfg={fl:num('fl'),fi:num('fi'),fs:num('fs'),fx:num('fx')};makeEngastes(S.engCfg,f.sc==='sel');}
+function makeEngastes(cfg,onlySel){
+  const wood=S.pieces.filter(p=>p.view==='front'&&!p.post&&!isPlate(p)&&!mat(p.mat).kind&&(!onlySel||sel.has(p.id)));
+  const walls=S.pieces.filter(p=>p.view==='top'&&mat(p.mat).kind==='wall'&&!p.poly&&!p.post);
+  if(!walls.length){msg('Não há paredes na Planta para engastar as tesouras.',6000);return;}
+  if(!wood.length){msg('Não achei tesouras na vista Frontal.',6000);return;}
+  // tesouras = peças da Frontal no mesmo plano
+  const T=[];wood.slice().sort((a,b)=>a.z-b.z).forEach(p=>{const t=T.find(t=>Math.abs(t.yc-p.z)<1);if(t)t.ps.push(p);else T.push({yc:p.z,ps:[p]});});
+  const m=engMat(),made=[];let vols=0;
+  T.forEach(t=>{const th=Math.max(...t.ps.map(p=>dims(p).t));
+    walls.forEach(w=>{const wz0=w.z,wz1=w.z+bwOf(w);
+      lineXs(footprint(w),t.yc).forEach(([wx0,wx1])=>{let tx0=1e9,tx1=-1e9,z0=1e9,z1=-1e9,vw=0;
+        t.ps.forEach(p=>{const c=stripPoly(footprint(p),wx0,wx1);if(!c)return;c.forEach(q=>{tx0=Math.min(tx0,q[0]);tx1=Math.max(tx1,q[0]);z0=Math.min(z0,-q[1]);z1=Math.max(z1,-q[1]);});vw+=Math.abs(polyArea(c))*dims(p).t;});
+        if(tx1<tx0||z1<=wz0+.1||z0>=wz1-.1)return;                                   // tesoura não entra nessa parede (ou só apoia em cima)
+        const px0=tx0<=wx0+.2?wx0:Math.max(wx0,tx0-cfg.fx),px1=tx1>=wx1-.2?wx1:Math.min(wx1,tx1+cfg.fx);
+        const bz0=Math.max(wz0,z0-cfg.fi),bz1=Math.min(wz1,z1+cfg.fs),y0=t.yc-th/2-cfg.fl,y1=t.yc+th/2+cfg.fl;
+        made.push({view:'top',mat:m.id,poly:[[px0,y0],[px1,y0],[px1,y1],[px0,y1]],x1:px0,y1:y0,x2:px1,y2:y1,z:bz0,z2:bz0,th:bz1-bz0,rot:false,eng:{y:Math.round(t.yc*10)/10,wall:w.id},vwood:vw});});});});
+  if(!made.length){msg('Nenhuma tesoura entra numa parede (confira a altura das paredes e a cota das tesouras).',8000);return;}
+  push();const keys=new Set(made.map(e=>e.eng.y+'|'+e.eng.wall));S.pieces=S.pieces.filter(p=>!(p.eng&&keys.has(p.eng.y+'|'+p.eng.wall)));
+  made.forEach(e=>{S.pieces.push({...e,id:S.nid++});vols+=engVol(e);});changed();
+  msg(`${made.length} engaste${made.length>1?'s':''} criado${made.length>1?'s':''} · concreto ${vols.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})} m³ (já descontada a madeira).`,9000);}
 // ---- LINHAL: tábua de pé, contínua, pregada nos montantes alinhados; emendas sempre sobre um montante ----
 function lhGeom(A,B,zc0,Lmax){const ck='lh|'+A.p.id+'|'+B.p.id+'|'+zc0.toFixed(1)+'|'+Lmax+'|'+S.mat;if(cmd&&cmd._xg&&ck in cmd._xg)return cmd._xg[ck];
   const r=(()=>{const q={view:'side',mat:S.mat,rot:xRot()},d=dims(q),bw=d.w,bt=d.t,T=montLine(A),y0=Math.min(A.yc,B.yc),y1=Math.max(A.yc,B.yc),Ms=T.filter(t=>t.yc>=y0-.5&&t.yc<=y1+.5);
@@ -1070,7 +1107,7 @@ function renderBuilds(){
   L.forEach(m=>{const used=S.pieces.filter(p=>p.mat===m.id).length,row=document.createElement('div');row.style.cssText='display:flex;gap:4px;align-items:stretch';
     const b=document.createElement('button');b.className='mat'+(m.id===S.mat?' on':'');b.style.flex='1';
     b.innerHTML=`<span class="sw" style="background:${m.color}"></span><span><b>${esc(m.name)}</b><br><small>espessura ${fmm(m.h)} mm</small></span><em>${m.kind==='wall'?'parede':'laje'}</em>`;
-    b.onclick=async()=>{S.mat=m.id;save();renderMats();if(m.kind==='wall'){if(!await askWallH(m))return;run('pline');}else run('slab');};row.appendChild(b);
+    b.onclick=async()=>{S.mat=m.id;save();renderMats();if(m.kind==='wall'){if(!await askWallH(m))return;run('pline');}else if(m.kind==='fill')run('engaste');else run('slab');};row.appendChild(b);
     if(!used){const x=document.createElement('button');x.className='pbtn del';x.textContent='×';x.title='Remover da biblioteca';x.setAttribute('aria-label','Remover '+m.name);
       x.onclick=()=>{S.mats=S.mats.filter(q=>q!==m);if(S.mat===m.id)S.mat=(S.mats.find(q=>!q.plate&&!q.kind)||S.mats[0]).id;save();renderMats();};row.appendChild(x);}
     box.appendChild(row);});
@@ -1244,13 +1281,15 @@ function draw(){
   const drawOne=(p,joined)=>{
     const vv=vis(p);if(vv==='off')return;if(vv==='faint'){poly(shape2(p));ctx.globalAlpha=.1;ctx.fillStyle=mat(p.mat).color;ctx.fill();ctx.globalAlpha=.18;ctx.strokeStyle=css('--muted');ctx.lineWidth=1;ctx.stroke();ctx.globalAlpha=1;return;}
     const m=mat(p.mat),s=sel.has(p.id),hv=hover===p.id,own=same(p);poly(shape2(p));
-    ctx.globalAlpha=own?.85:.28;ctx.fillStyle=m.color;ctx.fill();ctx.globalAlpha=own?1:.55;
+    const fill=m.kind==='fill';ctx.globalAlpha=own||fill?.85:.28;ctx.fillStyle=m.color;ctx.fill();ctx.globalAlpha=own||fill?1:.55;
     const lk=!s&&!hv&&p.gid&&selG.has(p.gid);
     if(!joined||s||hv||lk){ctx.lineWidth=s||hv?2.2:lk?1.6:1;ctx.strokeStyle=s||hv?selC:lk?css('--accent'):'rgba(40,25,10,.75)';if((hv&&!s)||lk)ctx.setLineDash([5,3]);ctx.stroke();ctx.setLineDash([]);}ctx.globalAlpha=1;
     if(isBuild(p)){const fp=shape2(p);ctx.save();poly(fp);ctx.clip();const wall=mat(p.mat).kind==='wall';ctx.strokeStyle=wall?'rgba(120,70,40,.45)':'rgba(70,80,90,.45)';ctx.fillStyle='rgba(70,80,90,.5)';ctx.lineWidth=1;
       const xs=fp.map(q=>W2S(...q)),x0=Math.min(...xs.map(q=>q[0])),x1=Math.max(...xs.map(q=>q[0])),y0=Math.min(...xs.map(q=>q[1])),y1=Math.max(...xs.map(q=>q[1]));
       const fam=st=>{ctx.beginPath();for(let k=Math.floor((x0+y0)/st)*st;k<=x1+y1;k+=st){ctx.moveTo(k-y1,y1);ctx.lineTo(k-y0,y0);}ctx.stroke();};
       if(wall)fam(8);
+      else if(m.kind==='fill'){ctx.fillStyle='rgba(60,62,60,.55)';for(let y=Math.ceil(y0/5)*5;y<y1;y+=5){const r=(Math.round(y/5)*37)%7;for(let x=Math.floor(x0/6)*6+r;x<x1;x+=6+(Math.round(x+y)%3))ctx.fillRect(x,y,1.3,1.3);}
+        ctx.strokeStyle='rgba(60,62,60,.5)';ctx.beginPath();for(let y=Math.ceil(y0/13)*13;y<y1;y+=13)for(let x=Math.floor(x0/17)*17+((y/13)%2)*8;x<x1;x+=17){ctx.moveTo(x,y);ctx.lineTo(x+3,y-4);ctx.lineTo(x+6,y);ctx.closePath();}ctx.stroke();}
       else{for(let y=Math.ceil(y0/7)*7;y<y1;y+=7){const r=Math.round(y/7)%2?4.5:0;for(let x=Math.floor(x0/9)*9+r;x<x1;x+=9)ctx.fillRect(x,y,1.6,1.6);}fam(26);}
       ctx.restore();}
     if(own&&isPlate(p)&&view.s>1.2){const fp=footprint(p);ctx.save();poly(fp);ctx.clip();ctx.strokeStyle='rgba(60,70,75,.55)';ctx.lineWidth=1;ctx.beginPath();
@@ -1694,7 +1733,7 @@ function props(){
     groupUI(box,list);return;
   }
   const p=list[0];
-  box.innerHTML=`${p.poly?`<p class="empty">Laje por área · ${(Math.abs(polyArea(p.poly))/1e4).toLocaleString('pt-BR',{maximumFractionDigits:2})} m² · perímetro ${fmm(len3(p))} mm</p>`:p.post?'<p class="empty">Pilar (sempre na Planta)</p>':`<div class="row"><span>Vista</span><select id="p-view">${viewOpts(p.view)}</select></div>`}
+  box.innerHTML=`${p.poly&&mat(p.mat).kind==='fill'?`<p class="empty">Engaste em concreto · ${engVol(p).toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})} m³ (já descontada a madeira) · altura ${fmm(p.th)} mm</p>`:p.poly?`<p class="empty">Laje por área · ${(Math.abs(polyArea(p.poly))/1e4).toLocaleString('pt-BR',{maximumFractionDigits:2})} m² · perímetro ${fmm(len3(p))} mm</p>`:p.post?'<p class="empty">Pilar (sempre na Planta)</p>':`<div class="row"><span>Vista</span><select id="p-view">${viewOpts(p.view)}</select></div>`}
   <div class="row"><span>Peça</span><select id="p-mat">${opts(p.mat)}</select></div>
   ${p.poly?'':`<div class="row"><span>${p.post?'Altura':'Comprimento'} (mm)</span><input id="p-len" type="number" step="any" value="${Math.round(len3(p)*100)/10}"></div>`}
   <div class="row"><span>${zLabel(p)} (mm)</span><input id="p-z" type="number" step="any" value="${Math.round(p.z*100)/10}"></div>
@@ -1725,7 +1764,7 @@ let cutText='',cutRows=[],cutPlates=[],cutBuilds=[],cutTot={ml:0,vol:0};
 function cutlist(){
   const g={},gp={};S.pieces.forEach(p=>{if(isPlate(p)){const m=mat(p.mat);(gp[m.id]=gp[m.id]||{m,q:0}).q++;}});
   cutPlates=Object.values(gp).sort((a,b)=>a.m.name.localeCompare(b.m.name));
-  const gb={};S.pieces.forEach(p=>{if(!isBuild(p))return;const m=mat(p.mat);if(p.poly){const a=Math.abs(polyArea(p.poly))/1e4,k=m.id+'|A|'+Math.round(a*100);(gb[k]=gb[k]||{m,L:0,bw:0,area:a,q:0}).q++;return;}const L=Math.round(len3(p)),bw=bwOf(p),k=m.id+'|'+L+'|'+Math.round(bw*10);(gb[k]=gb[k]||{m,L,bw,q:0}).q++;});
+  const gb={};S.pieces.forEach(p=>{if(!isBuild(p))return;const m=mat(p.mat);if(p.poly&&m.kind==='fill'){const v=engVol(p),k=m.id+'|V';const r=(gb[k]=gb[k]||{m,L:0,bw:0,vol:0,q:0});r.vol+=v;r.q++;return;}if(p.poly){const a=Math.abs(polyArea(p.poly))/1e4,k=m.id+'|A|'+Math.round(a*100);(gb[k]=gb[k]||{m,L:0,bw:0,area:a,q:0}).q++;return;}const L=Math.round(len3(p)),bw=bwOf(p),k=m.id+'|'+L+'|'+Math.round(bw*10);(gb[k]=gb[k]||{m,L,bw,q:0}).q++;});
   cutBuilds=Object.values(gb).sort((a,b)=>a.m.name.localeCompare(b.m.name)||b.L-a.L);
   S.pieces.forEach(p=>{if(isPlate(p)||isBuild(p))return;const m=mat(p.mat),L=Math.round(len3(p));const enc=!!(p.cut1||p.cut2),k=m.id+'|'+L+'|'+enc;(g[k]=g[k]||{m,L,q:0,enc}).q++;});
   const rows=Object.values(g).sort((a,b)=>a.m.name.localeCompare(b.m.name)||b.L-a.L);
@@ -1734,7 +1773,7 @@ function cutlist(){
   cutRows=rows;cutTot={ml,vol};
   $('cut').innerHTML='<tr><th>Peça</th><th>Seção mm</th><th style="text-align:right">Compr. mm</th><th style="text-align:right">Qtd</th></tr>'+
     (rows.length?rows.map(r=>`<tr><td><span class="sw" style="display:inline-block;vertical-align:-2px;background:${r.m.color}"></span> ${r.m.name}${r.enc?' <small>(encaixe)</small>':''}</td><td class="n">${fmm(r.m.b)}×${fmm(r.m.h)}</td><td class="n">${fmm(r.L)}</td><td class="n">${r.q}</td></tr>`).join(''):'<tr><td colspan="4" class="empty">Nenhuma peça desenhada.</td></tr>')+
-    (cutBuilds.length?`<tr><th colspan="4" style="padding-top:10px">Paredes e lajes (fora da madeira) · esp. × larg./alt.</th></tr>`+cutBuilds.map(r=>`<tr><td><span class="sw" style="display:inline-block;vertical-align:-2px;background:${r.m.color}"></span> ${esc(r.m.name)}</td><td class="n">${fmm(r.m.h)}${r.area!=null?'':'×'+fmm(r.bw)}</td><td class="n">${r.area!=null?r.area.toLocaleString('pt-BR',{maximumFractionDigits:2})+' m²':fmm(r.L)}</td><td class="n">${r.q}</td></tr>`).join(''):'')+
+    (cutBuilds.length?`<tr><th colspan="4" style="padding-top:10px">Paredes e lajes (fora da madeira) · esp. × larg./alt.</th></tr>`+cutBuilds.map(r=>`<tr><td><span class="sw" style="display:inline-block;vertical-align:-2px;background:${r.m.color}"></span> ${esc(r.m.name)}</td><td class="n">${r.vol!=null?'—':fmm(r.m.h)+(r.area!=null?'':'×'+fmm(r.bw))}</td><td class="n">${r.vol!=null?r.vol.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' m³':r.area!=null?r.area.toLocaleString('pt-BR',{maximumFractionDigits:2})+' m²':fmm(r.L)}</td><td class="n">${r.q}</td></tr>`).join(''):'')+
     (cutPlates.length?`<tr><th colspan="4" style="padding-top:10px">Conectores Gang-Nail (largura × compr.)</th></tr>`+cutPlates.map(r=>`<tr><td><span class="sw" style="display:inline-block;vertical-align:-2px;background:${r.m.color}"></span> ${esc(r.m.name)}</td><td class="n">${fmm(r.m.h)}×${fmm(r.m.len)}</td><td class="n">aço ${fmmT(r.m.b)}</td><td class="n">${r.q}</td></tr>`).join(''):'');
   $('tot').innerHTML=`<span>Peças de madeira</span><b>${S.pieces.filter(p=>!isPlate(p)&&!isBuild(p)).length}</b>${cutPlates.length?`<span>Chapas Gang-Nail</span><b>${cutPlates.reduce((a,r)=>a+r.q,0)}</b>`:''}<span>Metro linear (cortadas)</span><b>${fmt(ml)} m</b><span>Volume de madeira</span><b>${vol.toLocaleString('pt-BR',{maximumFractionDigits:3})} m³</b>`;
   cutText='Peça\tSeção (mm)\tComprimento (mm)\tQtd\n'+rows.map(r=>`${r.m.name}${r.enc?' (encaixe)':''}\t${fmm(r.m.b)}x${fmm(r.m.h)}\t${fmm(r.L)}\t${r.q}`).join('\n')+(cutBuilds.length?'\n\nParede/laje\tEsp. x Larg. (mm)\tComprimento (mm)\tQtd\n'+cutBuilds.map(r=>`${r.m.name}\t${fmm(r.m.h)}x${fmm(r.bw)}\t${fmm(r.L)}\t${r.q}`).join('\n'):'')+(cutPlates.length?'\n\nConector\tLargura x Compr. (mm)\tAço (mm)\tQtd\n'+cutPlates.map(r=>`${r.m.name}\t${fmm(r.m.h)}x${fmm(r.m.len)}\t${fmmT(r.m.b)}\t${r.q}`).join('\n'):'')+`\n\nVolume total\t${vol.toLocaleString('pt-BR',{maximumFractionDigits:3})} m³`;
@@ -1834,7 +1873,7 @@ function plateMaterial(m,selected){
 function mesh(p){
   const{w,t}=dims(p),elev=p.view!=='top'&&!p.post;let geo,obj;
   const q=elev?{...p,z:-t/2,z2:-t/2}:p;
-  const mt=new THREE.MeshLambertMaterial({color:sel.has(p.id)?0x5aa8ff:mat(p.mat).color});
+  const mt=new THREE.MeshLambertMaterial({color:sel.has(p.id)?0x5aa8ff:mat(p.mat).color});if(mat(p.mat).kind==='fill'){mt.transparent=true;mt.opacity=.55;mt.depthWrite=false;}
   if(p.post){const m=mat(p.mat),b=p.rot?m.h:m.b,h=p.rot?m.b:m.h;geo=new THREE.BoxGeometry(b,p.len,h);obj=new THREE.Mesh(geo,mt);obj.position.set(p.x1,p.z+p.len/2,p.y1);}
   else if(p.poly){
     const fp=footprint(p);if(polyArea(fp)<0)fp.reverse();const n=fp.length,zb=p.z,hv=t;
