@@ -328,7 +328,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-15';
+const APP_VER='2026.11.27-16';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -1003,9 +1003,12 @@ function makeRoof(h,RL,c){
     const cols=[];for(let y=Y0+c.total/2;y+c.total/2<=Y1+.01;y+=c.util)cols.push(y);if(!cols.length||cols[cols.length-1]+c.total/2<Y1-.01)cols.push(Y1-c.total/2);
     cols.forEach(yc=>{const ya=yc-c.total/2,yb=yc+c.total/2,ov=CH.map((G,i)=>({G,f:fitAll.get(G.id),a:Math.max(ya,bs[i][0]),b:Math.min(yb,bs[i][1])})).filter(o=>o.b-o.a>.5);if(!ov.length)return;
       // dono da coluna: o pano que cobre a maior faixa da rampa; se ele não foi paginado agora e já tem telhas, a coluna é dele e fica como está
-      let own=ov.reduce((a,o)=>o.f.R>a.f.R?o:a);if(!lay.has(own.G.id)){if(oldTiles.has(own.G.id))return;const pr=ov.filter(o=>lay.has(o.G.id));if(!pr.length)return;own=pr.reduce((a,o)=>o.f.R>a.f.R?o:a);}
+      // faixa de até um recobrimento lateral (110−85 = 25 cm) do outro pano não recorta a telha: vira recobrimento lateral a mais / beiral lateral
+      // (nas laterais não tem calha). Se a parte do pano mais comprido é que é só essa faixa, a coluna fica com o pano menor (a coluna do lado cobre a faixa).
+      const lapL=c.total-c.util+.5,wd=o=>o.b-o.a;let own=ov.reduce((a,o)=>o.f.R>a.f.R?o:a);
+      if(ov.length>1&&wd(own)<=lapL){const alt=ov.filter(o=>o!==own&&wd(o)>lapL);if(alt.length)own=alt.reduce((a,o)=>wd(o)>wd(a)?o:a);}if(!lay.has(own.G.id)){if(oldTiles.has(own.G.id))return;const pr=ov.filter(o=>lay.has(o.G.id));if(!pr.length)return;own=pr.reduce((a,o)=>o.f.R>a.f.R?o:a);}
       const L=lay.get(own.G.id),sup=supOf.get(own.G.id);regenZ.push(yc);ncol.set(own.G.id,(ncol.get(own.G.id)||0)+1);
-      L.tiles.forEach(([ta,tb])=>{const ntc=[];ov.forEach(o=>{if(o===own)return;const k0=Math.max(ta,o.f.s0),k1=Math.min(tb,o.f.sEnd);if(k0<=ta+.05&&k1>=tb-.05)return;
+      L.tiles.forEach(([ta,tb])=>{const ntc=[];ov.forEach(o=>{if(o===own||wd(o)<=lapL)return;const k0=Math.max(ta,o.f.s0),k1=Math.min(tb,o.f.sEnd);if(k0<=ta+.05&&k1>=tb-.05)return;
           const Lt=tb-ta;ntc.push({y0:o.a-yc,y1:o.b-yc,s0:Math.min(Lt,Math.max(0,k0-ta)),s1:Math.min(Lt,Math.max(0,k1-ta))});});
         const A=P(ta,off),B=P(tb,off);out.push({view:'front',mat:tm.id,rot:false,x1:A[0],y1:-A[1],x2:B[0],y2:-B[1],z:yc,z2:yc,bw:c.total,rreg:own.G.id,sup,...(ntc.length?{ntc}:{})});if(ntc.length)nNotch++;});});});
   fits.forEach(f=>{const L=lay.get(f.G.id);if(!L)return;const nc=ncol.get(f.G.id)||0;
