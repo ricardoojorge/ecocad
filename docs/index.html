@@ -328,7 +328,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-13';
+const APP_VER='2026.11.27-14';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -977,8 +977,25 @@ function makeRoof(h,RL,c){
     return[pv&&adj(pv.ts[pv.ts.length-1],f0)?(pv.ts[pv.ts.length-1].y+f0.y)/2:f0.y-f0.t/2-c.lat,nx&&adj(f1,nx.ts[0])?(f1.y+nx.ts[0].y)/2:f1.y+f1.t/2+c.lat];};
   const fitAll=new Map(regs.map(G=>[G.id,fits.find(f=>f.G===G)||fitOf(G)]));
   // apoios de cada pano: 1ª terça, meio de cada recobrimento, última terça; intermediárias onde passar do vão máximo
-  const supOf=new Map();lay.forEach((L,id)=>{const f=fitAll.get(id),tl=L.tiles,sup=[f.sP0];for(let i=0;i+1<tl.length;i++)sup.push((tl[i+1][0]+tl[i][1])/2);sup.push(tl[tl.length-1][1]-pt/2);
-    const all=[];for(let i=0;i<sup.length;i++){all.push(sup[i]);if(i+1<sup.length){const g=sup[i+1]-sup[i],k=Math.ceil(g/vmax-1e-6)-1;for(let j=1;j<=k;j++)all.push(sup[i]+g*j/(k+1));}}supOf.set(id,all);});
+  // as linhas de terça de um pano procuram bater com as dos outros panos: o apoio do recobrimento pode correr dentro do recobrimento,
+  // e o apoio intermediário (vão máximo) vai para onde já existe terça, desde que nenhum vão passe do máximo nem precise de mais terças
+  const supOf=new Map(),ordR=[...lay.keys()].sort((a,b)=>fitAll.get(b).R-fitAll.get(a).R),FL=[],mains=new Map();
+  S.pieces.forEach(p=>{if(p.roof===roofKey&&p.sup&&mat(p.mat).kind==='tile'&&p.rreg&&!lay.has(p.rreg))p.sup.forEach(v=>FL.push(v));});
+  const near=(pool,lo,hi,pref)=>{let b=null;pool.forEach(v=>{if(v>=lo-1e-6&&v<=hi+1e-6&&(b===null||Math.abs(v-pref)<Math.abs(b-pref)))b=v;});return b;};
+  // 1ª terça fixa (calha); apoio do recobrimento corre dentro do recobrimento; última terça pode descer até 10 cm do topo da telha
+  const mainsOf=(id,pool)=>{const f=fitAll.get(id),tl=lay.get(id).tiles,ms=[f.sP0];
+    for(let i=0;i+1<tl.length;i++){const o0=tl[i+1][0],o1=tl[i][1],m=(o0+o1)/2,v=near(pool,Math.min(m,o0+pt/2+1),Math.max(m,o1-pt/2-1),m);ms.push(v===null?m:v);}
+    const e=tl[tl.length-1][1]-pt/2,v=near(pool,e-10,e,e);ms.push(v===null?e:v);return ms;};
+  const FL0=FL.slice();ordR.forEach(id=>{const ms=mainsOf(id,FL);ms.forEach(v=>FL.push(v));mains.set(id,ms);});
+  // 2ª passada: cada pano revê os seus apoios olhando os apoios já definidos dos outros panos
+  ordR.forEach(id=>{const pool=FL0.concat(...[...mains].filter(([k])=>k!==id).map(([,v])=>v));mains.set(id,mainsOf(id,pool));});
+  FL.length=0;FL.push(...FL0,...[...mains.values()].flat());
+  ordR.forEach(id=>{const ms=mains.get(id),all=[];
+    for(let i=0;i<ms.length;i++){all.push(ms[i]);if(i+1>=ms.length)continue;let a=ms[i],g=0;const b=ms[i+1];
+      while(b-a>vmax+1e-6&&g++<20){const k=Math.ceil((b-a)/vmax-1e-6)-1,def=a+(b-a)/(k+1);let v=null;
+        FL.forEach(x=>{if(x>a+pt&&x<b-pt&&x-a<=vmax+1e-6&&Math.ceil((b-x)/vmax-1e-6)-1<=k-1&&(v===null||Math.abs(x-def)<Math.abs(v-def)))v=x;});
+        if(v===null){v=def;FL.push(v);}all.push(v);a=v;}}
+    supOf.set(id,all);});
   const oldTiles=new Set(S.pieces.filter(p=>p.roof===roofKey&&mat(p.mat).kind==='tile'&&p.rreg&&!lay.has(p.rreg)).map(p=>p.rreg));
   const chains=[];regs.forEach((G,i)=>{const C=chains[chains.length-1];if(C&&adj(regs[i-1].ts[regs[i-1].ts.length-1],G.ts[0]))C.push(G);else chains.push([G]);});
   const regenZ=[];let nNotch=0;
