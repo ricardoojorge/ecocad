@@ -1,9 +1,4 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EcoCAD 3D Madeira</title>
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>EcoCAD 3D Madeira</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -333,7 +328,7 @@ td.n{text-align:right;font-family:var(--font-num)}
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 // versão do EcoCAD (muda a cada atualização publicada)
-const APP_VER='2026.11.27-12';
+const APP_VER='2026.11.27-13';
 // ================= dados =================
 // Cada peça pertence a uma vista: top (planta), front (frontal, plano XZ) ou side (lateral, plano YZ).
 // Coordenadas da peça (x1,y1,x2,y2) são as do desenho 2D da sua vista (y da tela para baixo).
@@ -599,7 +594,7 @@ function hull(pts){pts=pts.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]);if(pts.leng
   for(const q of pts){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],q)<=0)lo.pop();lo.push(q);}
   for(let i=pts.length-1;i>=0;i--){const q=pts[i];while(up.length>=2&&cr(up[up.length-2],up[up.length-1],q)<=0)up.pop();up.push(q);}
   up.pop();lo.pop();return lo.concat(up);}
-function shapeIn(p,v){return p.view===v?footprint(p):hull(corners3(p).map(W=>proj(W,v)));}
+function shapeIn(p,v){if(p.view===v)return footprint(p);if(p.ntc&&p.ntc.length&&p.view==='front'&&mat(p.mat).kind==='tile')return tileOutline(p).map(W=>proj(W,v));return hull(corners3(p).map(W=>proj(W,v)));}
 function dkeyIn(p,v){let d=-1e9;corners3(p).forEach(W=>d=Math.max(d,depth(W,v)));return d;}
 const shape2=p=>shapeIn(p,VIEW),dkey=p=>dkeyIn(p,VIEW);
 // translação feita na vista atual, aplicada a peça de qualquer vista
@@ -948,7 +943,8 @@ function makeRoof(h,RL,c){
   const mine=regs.find(G=>G.ts.some(t=>Math.abs(t.y-h.z)<.6)),work=c.only?regs.filter(G=>c.only.has(G.id)):manual.length?(mine?[mine]:[]):regs;if(!work.length){msg('A tesoura clicada não está nesse plano.',6000);return;}
   const fitOf=G=>{const sP0=G.lo+c.cal/ex+pt/2,s0=sP0-pt/2-c.over,sEnd=G.hi-gapT/ex;return{G,sP0,s0,sEnd,R:sEnd-s0};};
   // dispõe telhas de 'start' para cima, fechando em 'end'; a sobra vai para os recobrimentos (nk = recobrimentos que podem crescer, incluindo a junção)
-  const layUp=(start,end,seq,joint)=>{const cov=seq.reduce((a,v)=>a+v,0)-(seq.length-1)*r,exs=Math.max(0,cov-(end-start)),nk=seq.length-1+(joint?1:0);const rr=nk?r+exs/nk:r;
+  // jtop: a sobra também pode ir para o recobrimento de cima (junção com as fiadas aproveitadas acima)
+  const layUp=(start,end,seq,joint,jtop)=>{const cov=seq.reduce((a,v)=>a+v,0)-(seq.length-1)*r,exs=Math.max(0,cov-(end-start)),nk=seq.length-1+(joint?1:0)+(jtop?1:0);const rr=nk?r+exs/nk:r;
     const out=[];let a=joint?start-(rr-r):start;seq.forEach((L,i)=>{let len=L;if(!nk&&i===0)len=L-exs;out.push([a,a+len]);a=a+len-rr;});return{tiles:out,exs,per:nk?exs/nk:exs,cut:!nk&&exs>.01?exs:0};};
   const fits=work.map(fitOf),lay=new Map();
   fits.forEach(f=>{if(f.R<10){warn.push('pano curto ignorado');return;}});
@@ -969,26 +965,40 @@ function makeRoof(h,RL,c){
           tryC([...pre,...L2.tiles],[...FR.t.slice(0,k),...Fm.t],L2.per+(L2.cut?L2.cut*2:0)+15*(K-k),L2.cut);}}
       else if(Math.abs(f.sEnd-ref.sEnd)<1){const RT=LR.tiles;let K=0;while(K<RT.length&&RT[RT.length-1-K][0]>=f.s0-.01)K++;
         for(let k=K;k>=Math.max(0,K-2);k--){const suf=RT.slice(RT.length-k),end=k?suf[0][0]+r:f.sEnd,need=end-f.s0;if(need<=0)continue;const Fm=bestFiadas(need,lens,r);if(!Fm)continue;
-          const L2=layUp(f.s0,end,Fm.t,false);const sh=k?L2.tiles[L2.tiles.length-1][1]-(suf[0][0]+r):0;
-          tryC([...L2.tiles,...suf],[...Fm.t,...FR.t.slice(FR.t.length-k)],L2.per+15*(K-k),L2.cut);}}
+          const L2=layUp(f.s0,end,Fm.t,false,k>0);
+          tryC([...L2.tiles,...suf],[...Fm.t,...FR.t.slice(FR.t.length-k)],L2.per+(L2.cut?L2.cut*2:0)+15*(K-k),L2.cut);}}
       if(!best){const Fi=bestFiadas(f.R,lens,r);if(Fi){const L3=layUp(f.s0,f.sEnd,Fi.t,false);best={tiles:L3.tiles,seq:Fi.t,cut:L3.cut};}}
       if(best)lay.set(f.G.id,best);else warn.push('pano sem combinação de telhas');});}
-  // telhas
-  const tm=tileMat(c.esp),P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off],out=[],off=pw+tm.h/2,rep_=[];
-  fits.forEach(f=>{const L=lay.get(f.G.id);if(!L)return;const G=f.G,ri=regs.indexOf(G),f0=G.ts[0],f1=G.ts[G.ts.length-1],pv=regs[ri-1],nx=regs[ri+1];
-    const YA=pv&&adj(pv.ts[pv.ts.length-1],f0)?(pv.ts[pv.ts.length-1].y+f0.y)/2:f0.y-f0.t/2-c.lat,YB=nx&&adj(f1,nx.ts[0])?(f1.y+nx.ts[0].y)/2:f1.y+f1.t/2+c.lat;
-    const cols=[];for(let y=YA+c.total/2;y+c.total/2<=YB+.01;y+=c.util)cols.push(y);if(!cols.length||cols[cols.length-1]+c.total/2<YB-.01)cols.push(YB-c.total/2);
-    // apoios: 1ª terça, meio de cada recobrimento, última terça; intermediárias onde passar do vão máximo
-    const tl=L.tiles,sup=[f.sP0];for(let i=0;i+1<tl.length;i++)sup.push((tl[i+1][0]+tl[i][1])/2);sup.push(tl[tl.length-1][1]-pt/2);
-    const all=[];for(let i=0;i<sup.length;i++){all.push(sup[i]);if(i+1<sup.length){const g=sup[i+1]-sup[i],k=Math.ceil(g/vmax-1e-6)-1;for(let j=1;j<=k;j++)all.push(sup[i]+g*j/(k+1));}}
-    cols.forEach(yc=>tl.forEach(([ta,tb])=>{const A=P(ta,off),B=P(tb,off);out.push({view:'front',mat:tm.id,rot:false,x1:A[0],y1:-A[1],x2:B[0],y2:-B[1],z:yc,z2:yc,bw:c.total,rreg:G.id,sup:all});}));
-    rep_.push(`${tl.length} fiada${tl.length>1?'s':''} (${L.seq.map(v=>fmm(v)).join(' + ')}${L.cut?`, 1ª cortada ${fmm(L.cut)}`:''}) × ${cols.length} colunas`);});
-  const key='roof|'+Math.round(RL.lo[0]*RL.n[0]+RL.lo[1]*RL.n[1])+'|'+Math.round(RL.ang*1000);out.forEach(q=>q.roof=key);
+  // telhas: uma grade única de colunas por telhado contínuo (não recomeça em cada pano). A coluna que cai na divisa entre dois panos
+  // é telha inteira na largura, com as fiadas do pano mais comprido, e leva um recorte no canto onde o outro pano termina antes (ex.: degrau da calha).
+  const key='roof|'+Math.round(RL.lo[0]*RL.n[0]+RL.lo[1]*RL.n[1])+'|'+Math.round(RL.ang*1000),roofKey=key;
+  const tm=tileMat(c.esp),P=(sv,off)=>[RL.lo[0]+RL.e[0]*sv+RL.n[0]*off,RL.lo[1]+RL.e[1]*sv+RL.n[1]*off],out=[],off=pw+tm.h/2,rep_=[],ncol=new Map();
+  const band=G=>{const ri=regs.indexOf(G),f0=G.ts[0],f1=G.ts[G.ts.length-1],pv=regs[ri-1],nx=regs[ri+1];
+    return[pv&&adj(pv.ts[pv.ts.length-1],f0)?(pv.ts[pv.ts.length-1].y+f0.y)/2:f0.y-f0.t/2-c.lat,nx&&adj(f1,nx.ts[0])?(f1.y+nx.ts[0].y)/2:f1.y+f1.t/2+c.lat];};
+  const fitAll=new Map(regs.map(G=>[G.id,fits.find(f=>f.G===G)||fitOf(G)]));
+  // apoios de cada pano: 1ª terça, meio de cada recobrimento, última terça; intermediárias onde passar do vão máximo
+  const supOf=new Map();lay.forEach((L,id)=>{const f=fitAll.get(id),tl=L.tiles,sup=[f.sP0];for(let i=0;i+1<tl.length;i++)sup.push((tl[i+1][0]+tl[i][1])/2);sup.push(tl[tl.length-1][1]-pt/2);
+    const all=[];for(let i=0;i<sup.length;i++){all.push(sup[i]);if(i+1<sup.length){const g=sup[i+1]-sup[i],k=Math.ceil(g/vmax-1e-6)-1;for(let j=1;j<=k;j++)all.push(sup[i]+g*j/(k+1));}}supOf.set(id,all);});
+  const oldTiles=new Set(S.pieces.filter(p=>p.roof===roofKey&&mat(p.mat).kind==='tile'&&p.rreg&&!lay.has(p.rreg)).map(p=>p.rreg));
+  const chains=[];regs.forEach((G,i)=>{const C=chains[chains.length-1];if(C&&adj(regs[i-1].ts[regs[i-1].ts.length-1],G.ts[0]))C.push(G);else chains.push([G]);});
+  const regenZ=[];let nNotch=0;
+  chains.forEach(CH=>{if(!CH.some(G=>lay.has(G.id)))return;const bs=CH.map(band),Y0=bs[0][0],Y1=bs[bs.length-1][1];
+    const cols=[];for(let y=Y0+c.total/2;y+c.total/2<=Y1+.01;y+=c.util)cols.push(y);if(!cols.length||cols[cols.length-1]+c.total/2<Y1-.01)cols.push(Y1-c.total/2);
+    cols.forEach(yc=>{const ya=yc-c.total/2,yb=yc+c.total/2,ov=CH.map((G,i)=>({G,f:fitAll.get(G.id),a:Math.max(ya,bs[i][0]),b:Math.min(yb,bs[i][1])})).filter(o=>o.b-o.a>.5);if(!ov.length)return;
+      // dono da coluna: o pano que cobre a maior faixa da rampa; se ele não foi paginado agora e já tem telhas, a coluna é dele e fica como está
+      let own=ov.reduce((a,o)=>o.f.R>a.f.R?o:a);if(!lay.has(own.G.id)){if(oldTiles.has(own.G.id))return;const pr=ov.filter(o=>lay.has(o.G.id));if(!pr.length)return;own=pr.reduce((a,o)=>o.f.R>a.f.R?o:a);}
+      const L=lay.get(own.G.id),sup=supOf.get(own.G.id);regenZ.push(yc);ncol.set(own.G.id,(ncol.get(own.G.id)||0)+1);
+      L.tiles.forEach(([ta,tb])=>{const ntc=[];ov.forEach(o=>{if(o===own)return;const k0=Math.max(ta,o.f.s0),k1=Math.min(tb,o.f.sEnd);if(k0<=ta+.05&&k1>=tb-.05)return;
+          const Lt=tb-ta;ntc.push({y0:o.a-yc,y1:o.b-yc,s0:Math.min(Lt,Math.max(0,k0-ta)),s1:Math.min(Lt,Math.max(0,k1-ta))});});
+        const A=P(ta,off),B=P(tb,off);out.push({view:'front',mat:tm.id,rot:false,x1:A[0],y1:-A[1],x2:B[0],y2:-B[1],z:yc,z2:yc,bw:c.total,rreg:own.G.id,sup,...(ntc.length?{ntc}:{})});if(ntc.length)nNotch++;});});});
+  fits.forEach(f=>{const L=lay.get(f.G.id);if(!L)return;const nc=ncol.get(f.G.id)||0;
+    rep_.push(`${L.tiles.length} fiada${L.tiles.length>1?'s':''} (${L.seq.map(v=>fmm(v)).join(' + ')}${L.cut?`, 1ª cortada ${fmm(L.cut)}`:''}) × ${nc} coluna${nc===1?'':'s'}`);});
+  out.forEach(q=>q.roof=key);
   const ids=new Set(fits.filter(f=>lay.has(f.G.id)).map(f=>f.G.id));
-  push();S.pieces=S.pieces.filter(p=>!(p.roof===key&&(p.terca||p.suporte||(mat(p.mat).kind==='tile'&&(ids.has(p.rreg)||!p.rreg)))));out.forEach(q=>S.pieces.push({...q,id:S.nid++}));
+  push();S.pieces=S.pieces.filter(p=>!(p.roof===key&&(p.terca||p.suporte||(mat(p.mat).kind==='tile'&&(ids.has(p.rreg)||!p.rreg||regenZ.some(z=>Math.abs(z-p.z)<1))))));out.forEach(q=>S.pieces.push({...q,id:S.nid++}));
   const pr=rebuildPurlins(RL,key,c,regs,T,adj,tp);changed();
   const nt=out.length,deg=RL.ang*180/Math.PI;
-  msg(`Telhado (${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°${regs.length>1?`, ${regs.length} panos`:''}): ${rep_.join(' · ')} = ${nt} telhas · ${pr.lines} linhas de terça (${pr.n} peças${pr.s?`, emendas a 45° com ${pr.s} suportes`:''}). TLH oculta/mostra as telhas.${warn.length?' Atenção: '+[...new Set(warn)].join('; ')+'.':''}`,16000);
+  msg(`Telhado (${(Math.round(deg*10)/10).toLocaleString('pt-BR')}°${regs.length>1?`, ${regs.length} panos`:''}): ${rep_.join(' · ')} = ${nt} telhas · ${pr.lines} linhas de terça (${pr.n} peças${pr.s?`, emendas a 45° com ${pr.s} suportes`:''})${nNotch?` · ${nNotch} telha${nNotch>1?'s':''} com recorte de canto na divisa dos panos`:''}. TLH oculta/mostra as telhas.${warn.length?' Atenção: '+[...new Set(warn)].join('; ')+'.':''}`,16000);
 }
 // terças do telhado inteiro, a partir das telhas que existem: uma linha por apoio; corre por todas as tesouras vizinhas que têm apoio no mesmo ponto
 // (linhas iguais entre panos viram uma terça contínua); emenda sobre tesoura, a 45° com suporte se a terça tem mais de 5 cm de altura
@@ -997,12 +1007,17 @@ function rebuildPurlins(RL,key,c,regs,T,adj,tp){const rot=tp.b>tp.h,pw=Math.max(
   const supBy=new Map();S.pieces.forEach(p=>{if(p.roof===key&&p.sup&&!supBy.has(p.rreg))supBy.set(p.rreg,p.sup);});
   const regOf=t=>regs.find(G=>G.ts.includes(t)),has=(t,sv)=>{const G=regOf(t),L=G&&supBy.get(G.id);return!!L&&L.some(v=>Math.abs(v-sv)<pt/2);};
   const lines=[];[...supBy.values()].flat().sort((a,b)=>a-b).forEach(v=>{if(!lines.length||v-lines[lines.length-1]>=pt/2)lines.push(v);});
+  const gp=T.slice(1).map((t,i)=>t.y-T[i].y).sort((a,b)=>a-b),sp_=gp.length?gp[Math.floor(gp.length/2)]:120;
   let n=0,ns=0;const add=q=>{S.pieces.push({...q,id:S.nid++,roof:key});};
   lines.forEach(sv=>{const C=P(sv,pw/2),pc=(y0,y1,c1,c2)=>{add({view:'side',mat:tp.id,rot,x1:y0,y1:-C[1],x2:y1,y2:-C[1],z:C[0],z2:C[0],tilt,terca:1,...(c1?{cut1:c1}:{}),...(c2?{cut2:c2}:{})});n++;};
     const suporte=t=>{const sf=sv-pt/2,A0=P(sf-pw,pw/2),A1=P(sf,pw/2),D0=P(sf-pw,0),D1=P(sf,pw);add({view:'front',mat:tp.id,rot:tp.b>tp.h,x1:A0[0],y1:-A0[1],x2:A1[0],y2:-A1[1],z:t.y+t.t/2+pt/2,z2:t.y+t.t/2+pt/2,cut1:{ax:D0[0],ay:-D0[1],bx:D1[0],by:-D1[1]},suporte:1});ns++;};
     const covers=t=>sv-pt/2>=t.lo-.5&&sv+pt/2<=t.hi+.5;
     // tesouras que recebem esta linha: as que têm apoio aqui + a 1ª tesoura vizinha de um pano sem esse apoio (o vão da divisa fica apoiado)
-    const use=T.map((t,i)=>has(t,sv)||(covers(t)&&((i>0&&has(T[i-1],sv)&&adj(T[i-1],t))||(i<T.length-1&&has(T[i+1],sv)&&adj(t,T[i+1])))));
+    // trechos (em y) cobertos por telhas que apoiam nesta linha; a terça vai da tesoura antes do trecho até a tesoura depois dele
+    const iv=[];S.pieces.forEach(p=>{if(p.roof!==key||!p.sup||!p.sup.some(x=>Math.abs(x-sv)<pt/2))return;const w=bwOf(p)/2;iv.push([p.z-w,p.z+w]);});iv.sort((a,b)=>a[0]-b[0]);
+    const mg=[];iv.forEach(q=>{const l=mg[mg.length-1];if(l&&q[0]<=l[1]+1)l[1]=Math.max(l[1],q[1]);else mg.push(q.slice());});
+    const use=T.map(()=>false);mg.forEach(([a,b])=>{let lo_=-1,hi_=-1;T.forEach((t,i)=>{if(!covers(t))return;if(t.y>=a&&t.y<=b)use[i]=true;else if(t.y<a)lo_=i;else if(hi_<0)hi_=i;});
+      if(lo_>=0&&a-T[lo_].y<=sp_*1.6)use[lo_]=true;if(hi_>=0&&T[hi_].y-b<=sp_*1.6)use[hi_]=true;});
     let run=[];const flush=()=>{if(!run.length)return;const Ys=run.map(t=>t.y),y0=Ys[0]-run[0].t/2,y1=Ys[Ys.length-1]+run[run.length-1].t/2;let cur=y0,cc=null,g=0;
       while(g++<500){const st=cc?pw/2:0;if(y1-(cur-st)<=c.lmax+1e-6){pc(cur-st,y1,cc,null);break;}
         let j=-1;Ys.forEach((y,k)=>{if(y>cur+1&&y+(sc?pw/2:0)-(cur-st)<=c.lmax+1e-6)j=k;});if(j<0){pc(cur-st,y1,cc,null);break;}
@@ -1348,6 +1363,14 @@ function bounds(){
   if(VIEW!=='top')y2=Math.max(y2,0);
   return{x1,y1,x2,y2};
 }
+// telha com recorte de canto (ntc): divide a largura em faixas; cada faixa tem o trecho [s0,s1] que existe ao longo da telha
+function tileStrips(p,L){const W=bwOf(p),br=[-W/2,W/2];(p.ntc||[]).forEach(k=>br.push(Math.max(-W/2,Math.min(W/2,k.y0)),Math.max(-W/2,Math.min(W/2,k.y1))));
+  const ys=[...new Set(br.map(v=>Math.round(v*1000)/1000))].sort((a,b)=>a-b),out=[];
+  for(let i=0;i+1<ys.length;i++){const y0=ys[i],y1=ys[i+1];if(y1-y0<1e-3)continue;const ym=(y0+y1)/2;let a=0,b=L;(p.ntc||[]).forEach(k=>{if(ym>k.y0&&ym<k.y1){a=Math.max(a,k.s0);b=Math.min(b,k.s1);}});out.push({y0,y1,a,b:Math.max(a,b)});}
+  return out;}
+// contorno da telha recortada no plano dela, em coordenadas do mundo [x, y da planta, altura]
+function tileOutline(p){const A=[p.x1,-p.y1],B=[p.x2,-p.y2],L=Math.hypot(B[0]-A[0],B[1]-A[1])||1,d=[(B[0]-A[0])/L,(B[1]-A[1])/L],W3=(sv,yy)=>[A[0]+d[0]*sv,p.z+yy,A[1]+d[1]*sv];
+  const st=tileStrips(p,L).filter(q=>q.b-q.a>.01),lo=[],hi=[];st.forEach(q=>{lo.push(W3(q.a,q.y0),W3(q.a,q.y1));hi.push(W3(q.b,q.y0),W3(q.b,q.y1));});return lo.concat(hi.reverse());}
 function footprint(p){
   const m=mat(p.mat);if(p.poly)return p.poly.map(q=>[q[0],q[1]]);
   if(p.post){const hb=(p.rot?m.h:m.b)/2,hh=(p.rot?m.b:m.h)/2;return[[p.x1-hb,p.y1-hh],[p.x1+hb,p.y1-hh],[p.x1+hb,p.y1+hh],[p.x1-hb,p.y1+hh]];}
@@ -2051,9 +2074,12 @@ function mesh(p){
     const m=mat(p.mat),H=m.h,es=m.esp||.6,Wd=bwOf(p),A=[p.x1,-p.y1],B=[p.x2,-p.y2],L=Math.hypot(B[0]-A[0],B[1]-A[1])||1,d=[(B[0]-A[0])/L,(B[1]-A[1])/L];let n=[-d[1],d[0]];if(n[1]<0)n=[-n[0],-n[1]];
     const N=Math.max(12,Math.round(Wd/ONDA_P*12)),pos=[],tri=(a,b2,c)=>pos.push(...a,...b2,...c),hv=y=>H*(1-Math.cos(2*Math.PI*(y+Wd/2)/ONDA_P))/2-H/2;
     const V=(s0,yy,dz)=>{const h=hv(yy)+dz;return[A[0]+d[0]*s0+n[0]*h,A[1]+d[1]*s0+n[1]*h,p.z+yy];};
-    for(let i=0;i<N;i++){const y0=-Wd/2+Wd*i/N,y1=-Wd/2+Wd*(i+1)/N;[[es,1],[0,-1]].forEach(([dz,sg])=>{const a=V(0,y0,dz),b2=V(L,y0,dz),c=V(L,y1,dz),e=V(0,y1,dz);if(sg>0){tri(a,b2,c);tri(a,c,e);}else{tri(a,c,b2);tri(a,e,c);}});}
+    const SB=tileStrips(p,L);
+    SB.forEach(q=>{if(q.b-q.a<.01)return;const n_=Math.max(1,Math.round((q.y1-q.y0)/Wd*N));for(let i=0;i<n_;i++){const y0=q.y0+(q.y1-q.y0)*i/n_,y1=q.y0+(q.y1-q.y0)*(i+1)/n_;
+      [[es,1],[0,-1]].forEach(([dz,sg])=>{const a=V(q.a,y0,dz),b2=V(q.b,y0,dz),c=V(q.b,y1,dz),e=V(q.a,y1,dz);if(sg>0){tri(a,b2,c);tri(a,c,e);}else{tri(a,c,b2);tri(a,e,c);}});}});
     mt.side=THREE.DoubleSide;geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));geo.computeVertexNormals();obj=new THREE.Mesh(geo,mt);
-    {const c=[[0,-Wd/2],[L,-Wd/2],[L,Wd/2],[0,Wd/2]].map(([sv,yy])=>V(sv,yy,0)),lp=[];[[0,1],[1,2],[2,3],[3,0]].forEach(([i,j])=>lp.push(...c[i],...c[j]));const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(lp,3));obj.add(new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0x6b7378,transparent:true,opacity:.7})));}
+    {const st=SB.filter(q=>q.b-q.a>.01),ol=[];st.forEach(q=>ol.push([q.a,q.y0],[q.a,q.y1]));st.slice().reverse().forEach(q=>ol.push([q.b,q.y1],[q.b,q.y0]));
+      const c=ol.map(([sv,yy])=>V(sv,yy,0)),lp=[];c.forEach((_,i)=>lp.push(...c[i],...c[(i+1)%c.length]));const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(lp,3));obj.add(new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0x6b7378,transparent:true,opacity:.7})));}
     return obj;
   }
   else if(p.cut1||p.cut2||p.xc1||p.xc2){
